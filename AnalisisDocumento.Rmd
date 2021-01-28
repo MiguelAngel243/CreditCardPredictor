@@ -10,6 +10,7 @@ knitr::opts_chunk$set(echo = TRUE)
 library(plyr)
 library(dplyr)
 library(reshape2)
+library(ggplot2)
 ```
 
 ## Introducción
@@ -71,14 +72,33 @@ De cada usuario se obtiene el promedio de la cantidad de pagos atrasados cada me
 
 ```{r}
 userg <- group_by(tdata,ID,default) %>% summarise(meanpp=mean(PENDINGPAYS))
+
 ggplot(aes(y=meanpp,x=default, color=default),data=userg,main="d")+geom_boxplot()+labs(title="Promedio de faltas de pagos",subtitle = "En los últimos 6 meses")+xlab("Incumple pago")+ylab("N Pagos incumplidos")
 
 ```
+Se observa a priori una ligera diferencia en el promedio para ambos grupos, teniendo una intersección en el rango intercuartílico. Por la caja de la izquierda, se observa que el 50% de los usuarios que no debieron el último pago tuvieron un promedio negativo.
+
 Sin embargo, es posible que el comportamiento en el cumplimiento de pagos cambie, ya sea que sus pagos incumplidos se reduzcan, o se incrementen.
 
-```{r}
-tdata <- mutate(tdata,WPENDINGP=(PENDINGPAYS*(6-MONTHSBEFORE)))
+Para tomar en consideración esa dinámica, se calcula un promedio ponderado de la cantidad de pagos vencidos. Aquellas cantidades más recientes tendrán un mayor peso que las cantidades más antiguas. 
 
+```{r}
+tdata <- mutate(tdata,WPENDINGP=(PENDINGPAYS*(4-MONTHSBEFORE)))
+userg <- group_by(tdata,ID,default) %>% summarise(meanpp=mean(PENDINGPAYS),meanwpp=mean(WPENDINGP))
+
+ggplot(aes(y=meanwpp,x=default, color=default),data=userg,main="d")+geom_boxplot()+labs(title="Promedio poderado de faltas de pagos",subtitle = "En los últimos 6 meses")+xlab("Incumple pago")+ylab("N Pagos incumplidos")
 
 ```
+En ésta otra gráfica se observa que ya no se translapan los rangos intercuartílicos, lo que podría ser de ayuda en mejorar la precisión de algún modelo al incluir este promedio ponderado.
+
+Para verificar la certeza de que las distribuciones en los promedios antes calculados son distintas, se emplea un t test.
+
+```{r}
+ppd <- filter(userg,default==1)[,3]
+ppn <- filter(userg,default==0)[,3]
+t.test(ppd,ppn,paired=FALSE)
+```
+Dado que el p-value de este test es casi nulo, se rechaza la hipótesis nula, relativa a que ambas distribuciones tienen igual promedio.
+
+
 
