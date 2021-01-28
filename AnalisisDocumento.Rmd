@@ -1,0 +1,84 @@
+---
+title: "Analisis Exploratorio"
+author: "Miguel Angel G.G"
+date: "28/1/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(plyr)
+library(dplyr)
+library(reshape2)
+```
+
+## Introducción
+
+
+### Revisión preeliminar de archivo
+
+
+```{r pressure, echo=FALSE}
+
+data <- read.csv("Credit_Card.csv")
+str(data)
+```
+Los datos categoricos (sexo, educación y estado marital) están codificados como enteros. Se procede a dejar las categorías explícitas:
+```{r}
+data$SEX <- factor(ifelse(data$SEX==1,"Hombre","Mujer"))
+
+data$EDUCATION <- factor(mapvalues(data$EDUCATION,0:6,c("Desc","MaestriaD","Licenciatura","Prepa","Otra","Desc","Desc")))
+
+data$MARRIAGE <- factor(mapvalues(data$MARRIAGE, 0:3, c("Otro","Casada","Soltera","Otro")))
+
+colnames(data)[25] <- "default"
+colnames(data)[7] <- "PAY_1"
+```
+
+Las columnas restantes son en realidad 3 variables distintas, con 6 observaciones cada una. Se emplea la operación melt para cumplir los criterios del dataset limpio.
+
+```{r}
+paycol <- melt(data,id.vars=colnames(data)[-(7:12)],measured.vars=7:12, variable.name = "MONTHSBEFORE",value.name = "PENDINGPAYS")
+
+paycol$MONTHSBEFORE <- sub(".*([[:digit:]])",x=paycol$MONTHSBEFORE, replacement="\\1" )
+
+billcol <- melt(data,id.vars=colnames(data)[-(13:18)],measured.vars=13:18, variable.name = "MONTHSBEFORE",value.name = "BILL")
+
+billcol$MONTHSBEFORE <- sub(".*([[:digit:]])",x=billcol$MONTHSBEFORE, replacement="\\1" )
+
+amcol <- melt(data,id.vars=colnames(data)[-(19:24)],measured.vars=19:24, variable.name = "MONTHSBEFORE",value.name = "AMORTIZATION")
+
+amcol$MONTHSBEFORE <- sub(".*([[:digit:]])",x=amcol$MONTHSBEFORE, replacement="\\1" )
+
+tdata <- select(data,c((1:6),25))
+paycol <- select(paycol,c(1,20,21))
+amcol <- select(amcol,c(1,20,21))
+billcol <- select(billcol,c(1,20,21))
+
+columns <- join_all(lst(paycol,amcol,billcol),by=c("ID","MONTHSBEFORE"))
+tdata <- join(tdata,columns,by="ID") %>%
+  arrange(ID,MONTHSBEFORE) %>%
+  select(1,8,2,3,4,5,6,9,10,11,7)
+
+tdata$default <- factor(tdata$default)
+tdata$MONTHSBEFORE <- as.numeric(tdata$MONTHSBEFORE)
+```
+
+## Analisis Exploratorio
+
+### Historial de Retraso de Pagos
+De cada usuario se obtiene el promedio de la cantidad de pagos atrasados cada mes. Hipotéticamente, aquellos usuarios que tengan más meses con más pagos vencidos, serán más propensos a no pagar el próximo mes.
+
+```{r}
+userg <- group_by(tdata,ID,default) %>% summarise(meanpp=mean(PENDINGPAYS))
+ggplot(aes(y=meanpp,x=default, color=default),data=userg,main="d")+geom_boxplot()+labs(title="Promedio de faltas de pagos",subtitle = "En los últimos 6 meses")+xlab("Incumple pago")+ylab("N Pagos incumplidos")
+
+```
+Sin embargo, es posible que el comportamiento en el cumplimiento de pagos cambie, ya sea que sus pagos incumplidos se reduzcan, o se incrementen.
+
+```{r}
+tdata <- mutate(tdata,WPENDINGP=(PENDINGPAYS*(6-MONTHSBEFORE)))
+
+
+```
+
