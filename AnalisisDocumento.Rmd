@@ -11,6 +11,7 @@ library(plyr)
 library(dplyr)
 library(reshape2)
 library(ggplot2)
+library(psych)
 ```
 
 ## Introducción
@@ -67,52 +68,110 @@ tdata$MONTHSBEFORE <- as.numeric(tdata$MONTHSBEFORE)
 
 ## Analisis Exploratorio
 
+### Prevalencia de default
+
+```{r}
+prevalence <- mean(data$default==1)
+```
+
+La prevalencia del incumplimiento de pago en el mes actual es del `r prevalence*100`%
+
+### Correlación entre variables continuas-outcome
+
+Se obtiene una matriz de correlación para todas las variables numericas continuas:
+```{r}
+cor.plot(select(data,c(-1,-(3:5))))
+```
+
+### Correlación entre variables discretas - outcome
+
+```{r}
+data$default <- factor(data$default)
+
+ggplot(aes(x=SEX,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de default",subtitle="Por género")+xlab("Género")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
+```
+
+Se observa una muy sutil diferencia en los porcentajes, para corroborar esta correlación, aunque sutil, se realiza un test chi-square.
+
+```{r}
+chisq.test(data$SEX,data$default)
+```
+Se verifica entonces la correlación entre género e incidencia de default.
+
+### Grado de Educación
+
+```{r}
+ggplot(aes(x=EDUCATION,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de Default",subtitle="Por grado de educación")+xlab("Grado")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
+```
+En cuanto al grado educativo, se observan ligeras diferencias entre las categorias, resaltando las categorías "Desconocido" y "Otra", donde la probilidad de default es marcadamente menor. 
+
+Sin embargo, se podría pensar que esta diferencia se debe a la escaza cantidad de registros en dichas categorías y que, por lo tanto, en realidad esa diferencia es debida a solo unas cuantas personas que ejercen mucha influencia en el porcentaje. Si construimos la tabla de contingencia para esta relación y realizamos un test chi-square...
+
+```{r}
+chisq.test(with(data,table(EDUCATION, default)))
+```
+El p-value para este test es muy bajo y por lo tanto verifica la relación.
+
+### Estado Marital
+
+```{r}
+ggplot(aes(x=MARRIAGE,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de Default",subtitle="Por estado marital")+xlab("Estado")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
+```
+
+
 ### Historial de Retraso de Pagos
-De cada usuario se obtiene el promedio de la cantidad de pagos atrasados cada mes. Hipotéticamente, aquellos usuarios que tengan más meses con más pagos vencidos, serán más propensos a no pagar el próximo mes.
+Como se puede ver en la matriz de correlación, los valores que tienen mayor correlación con respecto a la variable de interés (default) son los registros de la variable PAY_n, que representa el número de pagos vencidos acumulados cada mes. 
+
+Sin embargo, y es de esperarse, los 6 observaciones de la variable PAY_n estan estrechamente relacionadas. Por lo que, incluir todas esas observaciones en un futuro modelo, puede incrementar la varianza de los coeficientes en una regresión. 
+
+Se grafica la distribución de los valores de PAY_1 (el registro más actual y por ende, el más correlacionado con "default") mediante un boxplot:
 
 ```{r}
-userg <- group_by(tdata,ID,default) %>% summarise(meanpp=mean(PENDINGPAYS))
-
-ggplot(aes(y=meanpp,x=default, fill=default),data=userg)+geom_boxplot()+labs(title="Promedio de faltas de pagos",subtitle = "En los últimos 6 meses")+xlab("Incumple pago")+ylab("N Pagos incumplidos")
-
+ggplot(aes(y=PAY_1,x=default,fill=default),data=data)+geom_boxplot()+labs(title="Distribucipon de PAY_1",subtitle = "respecto a la falta de pago")+xlab("Default")+ylab("Numero de pagos atrasados el mes anterior")
 ```
-Se observa a priori una ligera diferencia en el promedio para ambos grupos, teniendo una intersección en el rango intercuartílico. Por la caja de la izquierda, se observa que el 50% de los usuarios que no debieron el último pago tuvieron un promedio negativo.
-
-Sin embargo, es posible que el comportamiento en el cumplimiento de pagos cambie, ya sea que sus pagos incumplidos se reduzcan, o se incrementen.
-
-Para tomar en consideración esa dinámica, se calcula un promedio ponderado de la cantidad de pagos vencidos. Aquellas cantidades más recientes tendrán un mayor peso que las cantidades más antiguas. 
-
-```{r}
-tdata <- mutate(tdata,WPENDINGP=(PENDINGPAYS*(7-MONTHSBEFORE)))
-userg <- group_by(tdata,ID,default) %>% summarise(meanpp=mean(PENDINGPAYS),meanwpp=mean(WPENDINGP))
-
-ggplot(aes(y=meanwpp,x=default, fill=default),data=userg)+geom_boxplot()+labs(title="Promedio poderado de faltas de pagos",subtitle = "En los últimos 6 meses")+xlab("Incumple pago")+ylab("N Pagos incumplidos")
-
-```
-En esta otra gráfica se observa que ya no se translapan los rangos intercuartílicos, lo que podría ser de ayuda en mejorar la precisión de algún modelo al incluir este promedio ponderado.
+Se nota un desplazamiento entre ambas cajas, teniendo solo los rangos intercantílicos 0-25% y 75%-100% superpuestos.
 
 Cabe resaltar que dos marcadores de cuantil en la caja izquierda están muy cerca, esto puede indicar una distribución muy desigual. Para verificar esto, se grafican violines para ambos grupos:
 
 ```{r}
-ggplot(aes(y=meanwpp,x=default, fill=default),data=userg)+geom_violin()+labs(title="Promedio poderado de faltas de pagos",subtitle = "Gráfica de violines")+xlab("Incumple pago")+ylab("N Pagos incumplidos")
+ggplot(aes(y=PAY_1,x=default,fill=default),data=data)+geom_violin()+labs(title="Distribucipon de PAY_1 (violines)",subtitle = "respecto a la falta de pago")+xlab("Default")+ylab("Numero de pagos atrasados el mes anterior")
 ```
-Aquí se aprecia la gran diferencia en las distribuciones del promedio. El violín derecho (default) es más homogéneo, conservando una considerable parte de su área por encima del eje X. 
+Aquí se aprecia la diferencia en las distribuciones del promedio. El violín derecho (default) es más homogéneo, conservando una considerable parte de su área por encima del eje X. 
 
 El violín izquierdo, por su parte, concentra gran cantidad del área sobre el eje X, y el resto del área se encuentra en mayor parte debajo de dicho eje.
 
-Se calcula la diferencia de los promedios de ambas distribuciones:
 ```{r}
-c(mean(filter(tdata,default==1)[,12])-mean(filter(tdata,default==0)[,12]),
-  mean(filter(tdata,default==1)[,8])-mean(filter(tdata,default==0)[,8]))
+dm <- mean(filter(data,default==1)[,7])-mean(filter(data,default==0)[,7])
 ```
 
-La diferencia en el promedio es más amplia para el promedio ponderado. Se conserva dicha variable en el dataset.
+Se calcula la diferencia de los promedios de ambas distribuciones: `r dm` pagos vencidos el mes anterior.
+
+Y se realiza un t-test para tener certeza en la existencia de esta diferencia en las distribuciones:
+```{r}
+t.test(data$PAY_1,as.numeric(data$default),paired=FALSE)
+```
+
 
 ### Límite de Crédito
 
 ```{r}
-ggplot(aes(y=log(LIMIT_BAL),x=default, fill=default),data=tdata)+geom_violin()+labs(title="Límite de Crédito")+xlab("Incumple pago")+ylab("Límite de Crédito [$]")
+ggplot(aes(y=log(LIMIT_BAL),x=default, fill=default),data=tdata)+geom_violin()+labs(title="Límite de Crédito")+xlab("Incumple pago")+ylab("Límite de Crédito [$x10,000]")
 ```
-En esta gráfica de violín no se distinguen diferencias sustanciales entre los dos grupos. 
+En esta gráfica de violín no se distinguen diferencias sustanciales entre los dos grupos. Conforme los valores de límite de crédito incrementan, la diferencia en el grosor de los violines se incrementa, aunque de forma muy sutil.
 
+### Edad
 
+```{r}
+ggplot(aes(x=AGE,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Edad")+xlab("Años")+ylab("Probabilidad de Impago")+geom_hline(yintercept = prevalence)
+```
+
+### Historial de Amortizaciones
+
+A pesar que la matriz de correlación indique que los valores individuales del historial de amortizaciones no estan relacionados con la incidencia de default, se puede pensar que el número de registros con pagos de $0 puede indicar una tendencia a faltar el siguiente pago.
+
+```{r}
+userg <- tdata %>% group_by(ID,default) %>% summarize(NNULLPAYMENTS = sum(AMORTIZATION==0))
+
+ggplot(aes(x=NNULLPAYMENTS,fill=default),data=userg)+geom_bar(position=position_fill())+xlab("Numero de pagos nulos")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
+```
+Se observa un incremento en la probabilidad de default mientras que el numero de pagos nulos es más alto. La linea horizontal está ubicada en el porcentaje de prevalencia de default. 
