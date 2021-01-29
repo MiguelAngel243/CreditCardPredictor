@@ -61,7 +61,7 @@ tdata <- join(tdata,columns,by="ID") %>%
   arrange(ID,MONTHSBEFORE) %>%
   select(1,8,2,3,4,5,6,9,10,11,7)
 
-tdata$default <- factor(tdata$default)
+tdata$default <- factor(as.numeric(tdata$default))
 tdata$MONTHSBEFORE <- as.numeric(tdata$MONTHSBEFORE)
 ```
 
@@ -73,7 +73,7 @@ De cada usuario se obtiene el promedio de la cantidad de pagos atrasados cada me
 ```{r}
 userg <- group_by(tdata,ID,default) %>% summarise(meanpp=mean(PENDINGPAYS))
 
-ggplot(aes(y=meanpp,x=default, color=default),data=userg,main="d")+geom_boxplot()+labs(title="Promedio de faltas de pagos",subtitle = "En los últimos 6 meses")+xlab("Incumple pago")+ylab("N Pagos incumplidos")
+ggplot(aes(y=meanpp,x=default, fill=default),data=userg)+geom_boxplot()+labs(title="Promedio de faltas de pagos",subtitle = "En los últimos 6 meses")+xlab("Incumple pago")+ylab("N Pagos incumplidos")
 
 ```
 Se observa a priori una ligera diferencia en el promedio para ambos grupos, teniendo una intersección en el rango intercuartílico. Por la caja de la izquierda, se observa que el 50% de los usuarios que no debieron el último pago tuvieron un promedio negativo.
@@ -83,22 +83,36 @@ Sin embargo, es posible que el comportamiento en el cumplimiento de pagos cambie
 Para tomar en consideración esa dinámica, se calcula un promedio ponderado de la cantidad de pagos vencidos. Aquellas cantidades más recientes tendrán un mayor peso que las cantidades más antiguas. 
 
 ```{r}
-tdata <- mutate(tdata,WPENDINGP=(PENDINGPAYS*(4-MONTHSBEFORE)))
+tdata <- mutate(tdata,WPENDINGP=(PENDINGPAYS*(7-MONTHSBEFORE)))
 userg <- group_by(tdata,ID,default) %>% summarise(meanpp=mean(PENDINGPAYS),meanwpp=mean(WPENDINGP))
 
-ggplot(aes(y=meanwpp,x=default, color=default),data=userg,main="d")+geom_boxplot()+labs(title="Promedio poderado de faltas de pagos",subtitle = "En los últimos 6 meses")+xlab("Incumple pago")+ylab("N Pagos incumplidos")
+ggplot(aes(y=meanwpp,x=default, fill=default),data=userg)+geom_boxplot()+labs(title="Promedio poderado de faltas de pagos",subtitle = "En los últimos 6 meses")+xlab("Incumple pago")+ylab("N Pagos incumplidos")
 
 ```
-En ésta otra gráfica se observa que ya no se translapan los rangos intercuartílicos, lo que podría ser de ayuda en mejorar la precisión de algún modelo al incluir este promedio ponderado.
+En esta otra gráfica se observa que ya no se translapan los rangos intercuartílicos, lo que podría ser de ayuda en mejorar la precisión de algún modelo al incluir este promedio ponderado.
 
-Para verificar la certeza de que las distribuciones en los promedios antes calculados son distintas, se emplea un t test.
+Cabe resaltar que dos marcadores de cuantil en la caja izquierda están muy cerca, esto puede indicar una distribución muy desigual. Para verificar esto, se grafican violines para ambos grupos:
 
 ```{r}
-ppd <- filter(userg,default==1)[,3]
-ppn <- filter(userg,default==0)[,3]
-t.test(ppd,ppn,paired=FALSE)
+ggplot(aes(y=meanwpp,x=default, fill=default),data=userg)+geom_violin()+labs(title="Promedio poderado de faltas de pagos",subtitle = "Gráfica de violines")+xlab("Incumple pago")+ylab("N Pagos incumplidos")
 ```
-Dado que el p-value de este test es casi nulo, se rechaza la hipótesis nula, relativa a que ambas distribuciones tienen igual promedio.
+Aquí se aprecia la gran diferencia en las distribuciones del promedio. El violín derecho (default) es más homogéneo, conservando una considerable parte de su área por encima del eje X. 
 
+El violín izquierdo, por su parte, concentra gran cantidad del área sobre el eje X, y el resto del área se encuentra en mayor parte debajo de dicho eje.
+
+Se calcula la diferencia de los promedios de ambas distribuciones:
+```{r}
+c(mean(filter(tdata,default==1)[,12])-mean(filter(tdata,default==0)[,12]),
+  mean(filter(tdata,default==1)[,8])-mean(filter(tdata,default==0)[,8]))
+```
+
+La diferencia en el promedio es más amplia para el promedio ponderado. Se conserva dicha variable en el dataset.
+
+### Límite de Crédito
+
+```{r}
+ggplot(aes(y=log(LIMIT_BAL),x=default, fill=default),data=tdata)+geom_violin()+labs(title="Límite de Crédito")+xlab("Incumple pago")+ylab("Límite de Crédito [$]")
+```
+En esta gráfica de violín no se distinguen diferencias sustanciales entre los dos grupos. 
 
 
