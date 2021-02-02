@@ -25,6 +25,8 @@ library(psych)
 data <- read.csv("Credit_Card.csv")
 str(data)
 ```
+En este conjunto de datos, se tienen 30,000 registros, con 25 variables cada una. Algunos pertenecientes a datos demográficos, y otros a datos de su respectiva cuenta bancaria.
+
 Los datos categoricos (sexo, educación y estado marital) están codificados como enteros. Se procede a dejar las categorías explícitas:
 ```{r}
 data$SEX <- factor(ifelse(data$SEX==1,"Hombre","Mujer"))
@@ -37,7 +39,7 @@ colnames(data)[25] <- "default"
 colnames(data)[7] <- "PAY_1"
 ```
 
-Las columnas restantes son en realidad 3 variables distintas, con 6 observaciones cada una. Se emplea la operación melt para cumplir los criterios del dataset limpio.
+Las columnas restantes son en realidad 3 variables distintas, con 6 observaciones cada una. Se emplea la operación melt para cumplir los criterios del "dataset ordenado".
 
 ```{r}
 paycol <- melt(data,id.vars=colnames(data)[-(7:12)],measured.vars=7:12, variable.name = "MONTHSBEFORE",value.name = "PENDINGPAYS")
@@ -83,7 +85,11 @@ Se obtiene una matriz de correlación para todas las variables numericas continu
 cor.plot(select(data,c(-1,-(3:5))))
 ```
 
+Se observa que las variables con mayor correlación con la variable de interés son los registros de los pagos atrasados mes con mes (PAY_X), y el límite de crédito (LIMIT_BAL), en ese orden. Sin embargo, los registros del estado de cuenta y cantidad pagada mensualmente parecen no tener relación directa.
+
 ### Correlación entre variables discretas - outcome
+
+### Género
 
 ```{r}
 data$default <- factor(data$default)
@@ -91,7 +97,7 @@ data$default <- factor(data$default)
 ggplot(aes(x=SEX,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de default",subtitle="Por género")+xlab("Género")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
 ```
 
-Se observa una muy sutil diferencia en los porcentajes, para corroborar esta correlación, aunque sutil, se realiza un test chi-square.
+Se observa una muy sutil diferencia en los porcentajes de probabilidad de default. La linea horizontal marca la prevalencia. Para corroborar esta correlación, aunque sutil, se realiza un test chi-square.
 
 ```{r}
 chisq.test(data$SEX,data$default)
@@ -117,36 +123,22 @@ El p-value para este test es muy bajo y por lo tanto verifica la relación.
 ```{r}
 ggplot(aes(x=MARRIAGE,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de Default",subtitle="Por estado marital")+xlab("Estado")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
 ```
-
+La diferencia entre los grupos "Casado-Otro" es prácticamente nula, sin embargo, el grupo de Solteros tiene un menor indice de impago.
 
 ### Historial de Retraso de Pagos
 Como se puede ver en la matriz de correlación, los valores que tienen mayor correlación con respecto a la variable de interés (default) son los registros de la variable PAY_n, que representa el número de pagos vencidos acumulados cada mes. 
 
 Sin embargo, y es de esperarse, los 6 observaciones de la variable PAY_n estan estrechamente relacionadas. Por lo que, incluir todas esas observaciones en un futuro modelo, puede incrementar la varianza de los coeficientes en una regresión. 
 
-Se grafica la distribución de los valores de PAY_1 (el registro más actual y por ende, el más correlacionado con "default") mediante un boxplot:
+Se grafica la distribución de los valores de PAY_1 (el registro más actual y por ende, el más significativo para la probabilidad impago").
+
 
 ```{r}
-ggplot(aes(y=PAY_1,x=default,fill=default),data=data)+geom_boxplot()+labs(title="Distribucipon de PAY_1",subtitle = "respecto a la falta de pago")+xlab("Default")+ylab("Numero de pagos atrasados el mes anterior")
+ggplot(aes(x=PAY_1,fill=default),data=data)+geom_bar(alpha=0.4, position= position_stack())+labs(title="Probabilidad de impago",subtitle = "En función del número de pagos vencidos el mes anterior")+xlab("Default")+ylab("Probabilidad de default")+coord_cartesian(xlim=c(-4,10))+geom_hline(yintercept = prevalence)+geom_vline(xintercept = 0)+coord_cartesian(xlim=c(-5,5))
 ```
-Se nota un desplazamiento entre ambas cajas, teniendo solo los rangos intercantílicos 0-25% y 75%-100% superpuestos.
+Se aprecia un notable incremento en la probabilidad de impago cuando el número de pagos vencidos acumulados el mes anterior es mayor a 1. 
 
-Cabe resaltar que dos marcadores de cuantil en la caja izquierda están muy cerca, esto puede indicar una distribución muy desigual. Para verificar esto, se grafican violines para ambos grupos:
-
-```{r}
-ggplot(aes(y=PAY_1,x=default,fill=default),data=data)+geom_violin()+labs(title="Distribucipon de PAY_1 (violines)",subtitle = "respecto a la falta de pago")+xlab("Default")+ylab("Numero de pagos atrasados el mes anterior")
-```
-Aquí se aprecia la diferencia en las distribuciones del promedio. El violín derecho (default) es más homogéneo, conservando una considerable parte de su área por encima del eje X. 
-
-El violín izquierdo, por su parte, concentra gran cantidad del área sobre el eje X, y el resto del área se encuentra en mayor parte debajo de dicho eje.
-
-```{r}
-dm <- mean(filter(data,default==1)[,7])-mean(filter(data,default==0)[,7])
-```
-
-Se calcula la diferencia de los promedios de ambas distribuciones: `r dm` pagos vencidos el mes anterior.
-
-Y se realiza un t-test para tener certeza en la existencia de esta diferencia en las distribuciones:
+Se realiza un t-test para tener certeza en la existencia de esta diferencia en las distribuciones:
 ```{r}
 t.test(data$PAY_1,as.numeric(data$default),paired=FALSE)
 ```
@@ -154,10 +146,10 @@ t.test(data$PAY_1,as.numeric(data$default),paired=FALSE)
 
 ### Límite de Crédito
 
-```{r}
-ggplot(aes(y=log(LIMIT_BAL),x=default, fill=default),data=tdata)+geom_violin()+labs(title="Límite de Crédito")+xlab("Incumple pago")+ylab("Límite de Crédito [$x10,000]")
+```{r warning=FALSE}
+ggplot(aes(x=LIMIT_BAL, fill=default),data=tdata)+geom_density(alpha=0.3)+labs(title="Límite de Crédito")+ylab("Proporción")+xlab("Límite de Crédito [$]")
 ```
-En esta gráfica de violín no se distinguen diferencias sustanciales entre los dos grupos. Conforme los valores de límite de crédito incrementan, la diferencia en el grosor de los violines se incrementa, aunque de forma muy sutil.
+Se puede observar que, conforme el límite de crédito aumenta, disminuye la proporción de usuarios que incumplen el pago. Aunque
 
 ### Edad
 
@@ -165,13 +157,45 @@ En esta gráfica de violín no se distinguen diferencias sustanciales entre los 
 ggplot(aes(x=AGE,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Edad")+xlab("Años")+ylab("Probabilidad de Impago")+geom_hline(yintercept = prevalence)
 ```
 
+En el intevalo de 20 a 50 años se notan valores ligeramente menores que en el intervalo de 50 en adelante. Este ligera diferencia se puede deber a la relación de la edad con otras variables demográficas:
+
+```{r}
+ggplot(aes(x=AGE,fill=EDUCATION),data=data)+geom_bar(position = position_stack())+labs(title="Grado Educativo por edad")+xlab("Edad")+ylab("Cantidad")
+```
+En el intervalo de personas de alrededor de 30 años, predomina la maestría, del cual se observó, es un grupo con menor indice de falta de pago.
+
+
+```{r}
+ggplot(aes(x=AGE,fill=MARRIAGE),data=data)+geom_bar(position =  position_stack())+labs(title="Estado Marital por Edad")+xlab("Edad")+ylab("Cantidad")
+```
+Además, en dicho grupo la mayoría son solteros, grupo que también se identificó con un menor índice de falta de pago.
+
 ### Historial de Amortizaciones
 
-A pesar que la matriz de correlación indique que los valores individuales del historial de amortizaciones no estan relacionados con la incidencia de default, se puede pensar que el número de registros con pagos de $0 puede indicar una tendencia a faltar el siguiente pago.
+A pesar que la matriz de correlación indique que los valores individuales del historial de amortizaciones no estan relacionados directamente con la incidencia de default, se puede deducir que el número de registros con pagos de $0 puede indicar una tendencia a faltar el siguiente pago.
 
 ```{r}
 userg <- tdata %>% group_by(ID,default) %>% summarize(NNULLPAYMENTS = sum(AMORTIZATION==0))
 
+
 ggplot(aes(x=NNULLPAYMENTS,fill=default),data=userg)+geom_bar(position=position_fill())+xlab("Numero de pagos nulos")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
 ```
-Se observa un incremento en la probabilidad de default mientras que el numero de pagos nulos es más alto. La linea horizontal está ubicada en el porcentaje de prevalencia de default. 
+Se observa un incremento en la probabilidad de default conforme el número de pagos nulos es más alto. 
+
+```{r}
+seldata = select(userg,ID,NNULLPAYMENTS) %>% join(data,by="ID") %>% select(NNULLPAYMENTS,LIMIT_BAL,SEX,EDUCATION,MARRIAGE,AGE,PAY_1,default)
+
+```
+### Número de meses con pagos atrasados
+
+Hasta ahora se revisó la correlación entre la incidencia de impago y el registro más actual de la variable PAY_X. Sin embargo, se puede sacar provecho de los registros anteriores, si se cuenta el número de meses con pagos atrasados, esto sugerirá que el usuario es un cierta medida irregular, y que por ende puede haber mayor probabilidad de que incumpla.
+
+```{r}
+seg <- tdata %>% group_by(ID,default) %>% summarise(IRREGMONTHS=sum(PENDINGPAYS>0))
+
+seldata <- join(seldata,select(seg,ID,IRREGMONTHS),by="ID")
+
+ggplot(aes(x=IRREGMONTHS, fill=default),data=seg)+geom_bar(position=position_fill())+labs(title="Meses irregulares",subtitle = "vs Probabilidad de Impago")+ylab("Proporción")+xlab("Meses Irregulares")
+```
+
+Se observa una proporcionalidad lineal entre el número de meses con irregularidades y la probabilidad de impago.
