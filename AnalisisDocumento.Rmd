@@ -23,9 +23,11 @@ library(psych)
 ```{r pressure, echo=FALSE}
 
 data <- read.csv("Credit_Card.csv")
-str(data)
+summary(data)
 ```
 En este conjunto de datos, se tienen 30,000 registros, con 25 variables cada una. Algunos pertenecientes a datos demográficos, y otros a datos de su respectiva cuenta bancaria.
+
+Los datos financieros BILL_AMTX y PAY_AMTX tienen escalas diferentes en cada usuario, por lo tanto dichas variables tendrán que ser normalizadas y centradas.
 
 Los datos categoricos (sexo, educación y estado marital) están codificados como enteros. Se procede a dejar las categorías explícitas:
 ```{r}
@@ -66,6 +68,8 @@ tdata <- join(tdata,columns,by="ID") %>%
 
 tdata$default <- factor(as.numeric(tdata$default))
 tdata$MONTHSBEFORE <- as.numeric(tdata$MONTHSBEFORE)
+
+
 ```
 
 ## Analisis Exploratorio
@@ -78,7 +82,7 @@ prevalence <- mean(data$default==1)
 
 La prevalencia del incumplimiento de pago en el mes actual es del `r prevalence*100`%
 
-### Correlación entre variables continuas-outcome
+### Correlación entre variables continuas y variable de interés.
 
 Se obtiene una matriz de correlación para todas las variables numericas continuas:
 ```{r}
@@ -87,7 +91,9 @@ cor.plot(select(data,c(-1,-(3:5))))
 
 Se observa que las variables con mayor correlación con la variable de interés son los registros de los pagos atrasados mes con mes (PAY_X), y el límite de crédito (LIMIT_BAL), en ese orden. Sin embargo, los registros del estado de cuenta y cantidad pagada mensualmente parecen no tener relación directa.
 
-### Correlación entre variables discretas - outcome
+Mientras que los registros de las variables PAY_X y BILL_AMTX están fuertemente relacionados de manera interna a cada variable.
+
+### Analisis de Variables Discretas
 
 ### Género
 
@@ -125,6 +131,28 @@ ggplot(aes(x=MARRIAGE,fill=default),data=data)+geom_bar(position=position_fill()
 ```
 La diferencia entre los grupos "Casado-Otro" es prácticamente nula, sin embargo, el grupo de Solteros tiene un menor indice de impago.
 
+### Edad
+
+```{r}
+ggplot(aes(x=AGE,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Edad")+xlab("Años")+ylab("Probabilidad de Impago")+geom_hline(yintercept = prevalence)
+```
+
+En el intevalo de 20 a 50 años se notan valores ligeramente menores que en el intervalo de 50 en adelante. Este ligera diferencia se puede deber a la relación de la edad con otras variables demográficas:
+
+```{r}
+ggplot(aes(x=AGE,fill=EDUCATION),data=data)+geom_bar(position = position_stack())+labs(title="Grado Educativo por edad")+xlab("Edad")+ylab("Cantidad")
+```
+En el intervalo de personas de alrededor de 30 años, predomina la maestría, del cual se observó, es un grupo con menor indice de falta de pago.
+
+
+```{r}
+ggplot(aes(x=AGE,fill=MARRIAGE),data=data)+geom_bar(position =  position_stack())+labs(title="Estado Marital por Edad")+xlab("Edad")+ylab("Cantidad")
+```
+
+Además, en dicho grupo la mayoría son solteros, grupo que también se identificó con un menor índice de falta de pago.
+
+### Analisis de Variables Continuas
+
 ### Historial de Retraso de Pagos
 Como se puede ver en la matriz de correlación, los valores que tienen mayor correlación con respecto a la variable de interés (default) son los registros de la variable PAY_n, que representa el número de pagos vencidos acumulados cada mes. 
 
@@ -149,26 +177,29 @@ t.test(data$PAY_1,as.numeric(data$default),paired=FALSE)
 ```{r warning=FALSE}
 ggplot(aes(x=LIMIT_BAL, fill=default),data=tdata)+geom_density(alpha=0.3)+labs(title="Límite de Crédito")+ylab("Proporción")+xlab("Límite de Crédito [$]")
 ```
-Se puede observar que, conforme el límite de crédito aumenta, disminuye la proporción de usuarios que incumplen el pago. Aunque
+Se puede observar que, conforme el límite de crédito aumenta, disminuye la proporción de usuarios que incumplen el pago. 
 
-### Edad
-
-```{r}
-ggplot(aes(x=AGE,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Edad")+xlab("Años")+ylab("Probabilidad de Impago")+geom_hline(yintercept = prevalence)
-```
-
-En el intevalo de 20 a 50 años se notan valores ligeramente menores que en el intervalo de 50 en adelante. Este ligera diferencia se puede deber a la relación de la edad con otras variables demográficas:
+### Historial del Estado de Cuenta
 
 ```{r}
-ggplot(aes(x=AGE,fill=EDUCATION),data=data)+geom_bar(position = position_stack())+labs(title="Grado Educativo por edad")+xlab("Edad")+ylab("Cantidad")
-```
-En el intervalo de personas de alrededor de 30 años, predomina la maestría, del cual se observó, es un grupo con menor indice de falta de pago.
+tdata$MONTHSBEFORE <- factor(tdata$MONTHSBEFORE)
 
+ggplot(aes(x=MONTHSBEFORE, y=BILL, fill=default),data=tdata)+geom_boxplot(outlier.shape = NA, alpha=0.6)+coord_cartesian(ylim=c(-20000,98000))+labs(title="Evolución y distribución",subtitle = "Del historial del Estado de Cuenta")+xlab("Meses antes")+ylab("Estado de Cuenta (Estandarizado)")
+```
+
+No hay un desplazamiento sustancial del promedio del estado de cuenta entre ambos grupos, sin embargo, se observa que el 3er cuartil del grupo de los incumplidores está por debajo del mismo cuantil para los cumplidores, lo que significa que los pagos más altos de los cumplidores por lo general son más altos que los pagos más altos de las incumplidores. Esto bien puede estar relacionado con que los usuarios incumplidores tienen límites de crédito más bajos.
+
+Conforme pasa el tiempo, los estados de cuenta altos (valor que marca el 3er cuartil, a escala normalizada) de ambos grupos se van incrementando, aunque con mayor grado en el grupo de los cumplidores.
+
+### Historial de Amortizaciones
 
 ```{r}
-ggplot(aes(x=AGE,fill=MARRIAGE),data=data)+geom_bar(position =  position_stack())+labs(title="Estado Marital por Edad")+xlab("Edad")+ylab("Cantidad")
+ggplot(aes(x=MONTHSBEFORE, y=AMORTIZATION, fill=default),data=tdata)+geom_boxplot(outlier.shape = NA, alpha=0.6)+coord_cartesian(ylim=c(-1000,7500))+labs(title="Evolución y distribución",subtitle = "Del historial de Amortizaciones")+xlab("Meses antes")+ylab("Cantidad Amortizada (Estandarizado)")
 ```
-Además, en dicho grupo la mayoría son solteros, grupo que también se identificó con un menor índice de falta de pago.
+
+Para esta variable es más notoria una diferencia: El promedio de la cantidad pagada cada mes por los incumplidores es más baja que la cantidad promedio pagada por los cumplidores. La evolución de los pagos parece tener una tendencia creciente tanto para el promedio como para el tercer cuartil de ambos grupos.
+
+### Creación de Variables Derivadas
 
 ### Historial de Amortizaciones
 
