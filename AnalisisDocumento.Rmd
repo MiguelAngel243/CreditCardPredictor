@@ -12,9 +12,8 @@ library(dplyr)
 library(reshape2)
 library(ggplot2)
 library(psych)
+library(caret)
 ```
-
-## Introducción
 
 
 ### Revisión preeliminar de archivo
@@ -23,7 +22,7 @@ library(psych)
 ```{r pressure, echo=FALSE}
 
 data <- read.csv("Credit_Card.csv")
-summary(data)
+str(data)
 ```
 En este conjunto de datos, se tienen 30,000 registros, con 25 variables cada una. Algunos pertenecientes a datos demográficos, y otros a datos de su respectiva cuenta bancaria.
 
@@ -72,9 +71,8 @@ tdata$MONTHSBEFORE <- as.numeric(tdata$MONTHSBEFORE)
 
 ```
 
-## Analisis Exploratorio
 
-### Prevalencia de default
+## Prevalencia de default
 
 ```{r}
 prevalence <- mean(data$default==1)
@@ -82,7 +80,7 @@ prevalence <- mean(data$default==1)
 
 La prevalencia del incumplimiento de pago en el mes actual es del `r prevalence*100`%
 
-### Correlación entre variables continuas y variable de interés.
+## Correlación entre variables continuas y variable de interés.
 
 Se obtiene una matriz de correlación para todas las variables numericas continuas:
 ```{r}
@@ -93,7 +91,7 @@ Se observa que las variables con mayor correlación con la variable de interés 
 
 Mientras que los registros de las variables PAY_X y BILL_AMTX están fuertemente relacionados de manera interna a cada variable.
 
-### Analisis de Variables Discretas
+## Analisis de Variables Discretas
 
 ### Género
 
@@ -115,6 +113,7 @@ Se verifica entonces la correlación entre género e incidencia de default.
 ```{r}
 ggplot(aes(x=EDUCATION,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de Default",subtitle="Por grado de educación")+xlab("Grado")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
 ```
+
 En cuanto al grado educativo, se observan ligeras diferencias entre las categorias, resaltando las categorías "Desconocido" y "Otra", donde la probilidad de default es marcadamente menor. 
 
 Sin embargo, se podría pensar que esta diferencia se debe a la escaza cantidad de registros en dichas categorías y que, por lo tanto, en realidad esa diferencia es debida a solo unas cuantas personas que ejercen mucha influencia en el porcentaje. Si construimos la tabla de contingencia para esta relación y realizamos un test chi-square...
@@ -129,12 +128,13 @@ El p-value para este test es muy bajo y por lo tanto verifica la relación.
 ```{r}
 ggplot(aes(x=MARRIAGE,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de Default",subtitle="Por estado marital")+xlab("Estado")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
 ```
+
 La diferencia entre los grupos "Casado-Otro" es prácticamente nula, sin embargo, el grupo de Solteros tiene un menor indice de impago.
 
 ### Edad
 
 ```{r}
-ggplot(aes(x=AGE,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Edad")+xlab("Años")+ylab("Probabilidad de Impago")+geom_hline(yintercept = prevalence)
+ggplot(aes(x=AGE,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de Default",subtitle="Por edad")+xlab("Años")+ylab("Probabilidad de Impago")+geom_hline(yintercept = prevalence)
 ```
 
 En el intevalo de 20 a 50 años se notan valores ligeramente menores que en el intervalo de 50 en adelante. Este ligera diferencia se puede deber a la relación de la edad con otras variables demográficas:
@@ -142,7 +142,8 @@ En el intevalo de 20 a 50 años se notan valores ligeramente menores que en el i
 ```{r}
 ggplot(aes(x=AGE,fill=EDUCATION),data=data)+geom_bar(position = position_stack())+labs(title="Grado Educativo por edad")+xlab("Edad")+ylab("Cantidad")
 ```
-En el intervalo de personas de alrededor de 30 años, predomina la maestría, del cual se observó, es un grupo con menor indice de falta de pago.
+
+En el intervalo de personas de alrededor de 30 años predomina la maestría, del cual se observó, es un grupo con menor indice de falta de pago.
 
 
 ```{r}
@@ -151,12 +152,17 @@ ggplot(aes(x=AGE,fill=MARRIAGE),data=data)+geom_bar(position =  position_stack()
 
 Además, en dicho grupo la mayoría son solteros, grupo que también se identificó con un menor índice de falta de pago.
 
-### Analisis de Variables Continuas
+## Analisis de Variables Continuas
 
 ### Historial de Retraso de Pagos
 Como se puede ver en la matriz de correlación, los valores que tienen mayor correlación con respecto a la variable de interés (default) son los registros de la variable PAY_n, que representa el número de pagos vencidos acumulados cada mes. 
 
 Sin embargo, y es de esperarse, los 6 observaciones de la variable PAY_n estan estrechamente relacionadas. Por lo que, incluir todas esas observaciones en un futuro modelo, puede incrementar la varianza de los coeficientes en una regresión. 
+
+```{r}
+ggplot(aes(x=MONTHSBEFORE, y=PENDINGPAYS, fill=default),data=tdata)+geom_boxplot(outlier.shape = NA, alpha=0.6)+labs(title="Pagos pendientes cada mes", subtitle="vs Impago")+ylab("Pagos Pendientes")+xlab("Meses antes")
+```
+Solo el primer registro inmediatamente anterior tiene los promedios para ambos grupos en un valor distinto. Los demás registros, especialmente el 5 y 6, no parecen aportar mucho criterio, al momento de discriminar a los grupos. Gradualmente, el grupo de default fue desplazando su rango intercuartílico, siendo cada vez más irregulares. Cabe resaltar que, no parece haber una cantidad significativa de casos irregulares en los meses -5 y -6. Lo que puede sugerir que este dataset fue constituido por clientes nuevos, o recién regularizados. 
 
 Se grafica la distribución de los valores de PAY_1 (el registro más actual y por ende, el más significativo para la probabilidad impago").
 
@@ -164,6 +170,7 @@ Se grafica la distribución de los valores de PAY_1 (el registro más actual y p
 ```{r}
 ggplot(aes(x=PAY_1,fill=default),data=data)+geom_bar(alpha=0.4, position= position_stack())+labs(title="Probabilidad de impago",subtitle = "En función del número de pagos vencidos el mes anterior")+xlab("Default")+ylab("Probabilidad de default")+coord_cartesian(xlim=c(-4,10))+geom_hline(yintercept = prevalence)+geom_vline(xintercept = 0)+coord_cartesian(xlim=c(-5,5))
 ```
+
 Se aprecia un notable incremento en la probabilidad de impago cuando el número de pagos vencidos acumulados el mes anterior es mayor a 1. 
 
 Se realiza un t-test para tener certeza en la existencia de esta diferencia en las distribuciones:
@@ -177,6 +184,7 @@ t.test(data$PAY_1,as.numeric(data$default),paired=FALSE)
 ```{r warning=FALSE}
 ggplot(aes(x=LIMIT_BAL, fill=default),data=tdata)+geom_density(alpha=0.3)+labs(title="Límite de Crédito")+ylab("Proporción")+xlab("Límite de Crédito [$]")
 ```
+
 Se puede observar que, conforme el límite de crédito aumenta, disminuye la proporción de usuarios que incumplen el pago. 
 
 ### Historial del Estado de Cuenta
@@ -197,9 +205,9 @@ Conforme pasa el tiempo, los estados de cuenta altos (valor que marca el 3er cua
 ggplot(aes(x=MONTHSBEFORE, y=AMORTIZATION, fill=default),data=tdata)+geom_boxplot(outlier.shape = NA, alpha=0.6)+coord_cartesian(ylim=c(-1000,7500))+labs(title="Evolución y distribución",subtitle = "Del historial de Amortizaciones")+xlab("Meses antes")+ylab("Cantidad Amortizada (Estandarizado)")
 ```
 
-Para esta variable es más notoria una diferencia: El promedio de la cantidad pagada cada mes por los incumplidores es más baja que la cantidad promedio pagada por los cumplidores. La evolución de los pagos parece tener una tendencia creciente tanto para el promedio como para el tercer cuartil de ambos grupos.
+Para esta variable es más notoria una diferencia: El promedio de la cantidad pagada cada mes por los incumplidores es más baja que la cantidad promedio pagada por los cumplidores. La evolución de los pagos parece tener una tendencia creciente tanto para el promedio como para el tercer cuartil de ambos grupos, aunque al igual que en variable BILL_AMT, esta tendencia es más marcada en el grupo de los cumplidores.
 
-### Creación de Variables Derivadas
+## Creación de Variables Derivadas
 
 ### Historial de Amortizaciones
 
@@ -211,12 +219,10 @@ userg <- tdata %>% group_by(ID,default) %>% summarize(NNULLPAYMENTS = sum(AMORTI
 
 ggplot(aes(x=NNULLPAYMENTS,fill=default),data=userg)+geom_bar(position=position_fill())+xlab("Numero de pagos nulos")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
 ```
+
 Se observa un incremento en la probabilidad de default conforme el número de pagos nulos es más alto. 
 
-```{r}
-seldata = select(userg,ID,NNULLPAYMENTS) %>% join(data,by="ID") %>% select(NNULLPAYMENTS,LIMIT_BAL,SEX,EDUCATION,MARRIAGE,AGE,PAY_1,default)
 
-```
 ### Número de meses con pagos atrasados
 
 Hasta ahora se revisó la correlación entre la incidencia de impago y el registro más actual de la variable PAY_X. Sin embargo, se puede sacar provecho de los registros anteriores, si se cuenta el número de meses con pagos atrasados, esto sugerirá que el usuario es un cierta medida irregular, y que por ende puede haber mayor probabilidad de que incumpla.
@@ -224,9 +230,53 @@ Hasta ahora se revisó la correlación entre la incidencia de impago y el regist
 ```{r}
 seg <- tdata %>% group_by(ID,default) %>% summarise(IRREGMONTHS=sum(PENDINGPAYS>0))
 
-seldata <- join(seldata,select(seg,ID,IRREGMONTHS),by="ID")
 
 ggplot(aes(x=IRREGMONTHS, fill=default),data=seg)+geom_bar(position=position_fill())+labs(title="Meses irregulares",subtitle = "vs Probabilidad de Impago")+ylab("Proporción")+xlab("Meses Irregulares")
 ```
 
+
 Se observa una proporcionalidad lineal entre el número de meses con irregularidades y la probabilidad de impago.
+
+### Porcentaje de Incremento del Estado de Cuenta
+
+Al analizar la evolución de la variable BILL_X, lo más destacable era el desplazamiento gradual del tercer cuartil. Se construye una variable que indique cuánto incrementó el estado de cuenta desde el registro más antiguo.
+
+```{r}
+data <- mutate(data,USAGE=(BILL_AMT1-BILL_AMT6))
+ggplot(aes(y=USAGE,x=default,fill=default),data=data)+geom_boxplot()+coord_cartesian(ylim=c(-4000,30000))+labs(title="Crecimiento del estado de Cuenta",subtitle = "vs Impago")+ylab("Cantidad [$]")+xlab("Impago")
+```
+
+Se confirma que el estado de cuenta de los cumplidores tiende a aumentar más que el estado de cuenta de los incumplidores.
+
+###Incremento de la cantidad pagada
+
+```{r}
+data <- mutate(data,INCRAMORT=PAY_AMT1-PAY_AMT6)
+ggplot(aes(y=INCRAMORT,x=default,fill=default),data=data)+geom_boxplot()+coord_cartesian(ylim=c(-700,3000))+labs(title="Crecimiento de los pagos",subtitle = "vs Impago")+ylab("Cantidad [$]")+xlab("Impago")
+```
+Se confirma que en el caso de los cumplidores aumenta en mayor medida el tamaño de sus pagos con el paso del tiempo.
+
+### Normalizado de Variables Financieras
+```{r}
+i <- 19:24
+m <- mean(tdata$AMORTIZATION)
+s <- sd(tdata$AMORTIZATION)
+for(a in i){ data[,a]<-(data[,a]-m)/s}
+
+m <- mean(tdata$BILL)
+s <- sd(tdata$BILL)
+i <- 13:18
+for(a in i){ data[,a]<-(data[,a]-m)/s}
+data$LIMIT_BAL <- scale(data$LIMIT_BAL)
+
+```
+
+## Reducción de Variables con PCA
+```{r}
+billpcacalc <- preProcess(data[,13:18],method="pca",scale=FALSE,pcaComp = 2)
+amtpcacalc <- preProcess(data[,19:24],method="pca",scale=FALSE,pcaComp = 2)
+
+rdata <- predict(billpcacalc,data)
+
+```
+
