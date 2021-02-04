@@ -26,7 +26,7 @@ str(data)
 ```
 En este conjunto de datos, se tienen 30,000 registros, con 25 variables cada una. Algunos pertenecientes a datos demográficos, y otros a datos de su respectiva cuenta bancaria.
 
-Los datos financieros BILL_AMTX y PAY_AMTX tienen escalas diferentes en cada usuario, por lo tanto dichas variables tendrán que ser normalizadas y centradas.
+Los datos financieros BILL_AMTX y PAY_AMTX tienen magnitudes diferentes para cada usuario, por lo tanto dichas variables tendrán que ser escaladas.
 
 Los datos categoricos (sexo, educación y estado marital) están codificados como enteros. Se procede a dejar las categorías explícitas:
 ```{r}
@@ -166,8 +166,9 @@ tdata$MONTHSBEFORE <- as.factor(tdata$MONTHSBEFORE)
 fcount <- tdata %>% filter(PENDINGPAYS>0) %>% group_by(MONTHSBEFORE) %>% summarise(cnt=length(ID))
 fcount$default <- factor(rep(1,6))
 
-ggplot(data=tdata,aes(x=MONTHSBEFORE, y=PENDINGPAYS, fill=default))+geom_boxplot(outlier.shape = NA, alpha=0.6)+labs(title="Pagos pendientes cada mes", subtitle="vs Impago")+ylab("Pagos Pendientes")+xlab("Meses antes")+geom_text(data=fcount,aes(x=MONTHSBEFORE,label=cnt,y=7))
+ggplot(data=tdata,aes(x=MONTHSBEFORE, y=PENDINGPAYS, fill=default))+geom_boxplot(outlier.shape = NA, alpha=0.6)+labs(title="Pagos pendientes cada mes", subtitle="vs Impago")+ylab("Pagos Pendientes")+xlab("Meses antes")+geom_text(data=fcount,aes(x=MONTHSBEFORE,label=cnt,y=3))+scale_y_continuous(breaks=seq(-2,5,1))+coord_cartesian(ylim=c(-2,5))
 ```
+
 Solo el primer registro inmediatamente anterior tiene los promedios para ambos grupos en un valor distinto. Los demás registros, especialmente el 5 y 6, no parecen aportar mucho criterio, al momento de discriminar a los grupos. Gradualmente, el grupo de impago fue desplazando su rango intercuartílico, siendo cada vez más irregulares. Cabe resaltar que, no parece haber una cantidad significativa de casos irregulares en los meses -5 y -6. Lo que puede sugerir que este dataset fue constituido por clientes con poca antiguedad, o recién regularizados. 
 
 Se grafica la distribución de los valores de PAY_1 (el registro más actual y por ende, el más significativo para la probabilidad impago").
@@ -319,7 +320,7 @@ roc.plot(as.numeric(data$default)-1,predMat,legend=TRUE)
 exp(model2$finalModel$coefficients)
 ```
 
-En esta tabla se puede observar que las varibles de incremento del estad de cuenta y de pagos, aportan poca diferencia en el porcentaje predicho por el modelo. Esto quizá se deba a que ambas están correlacionadas con el límite de crédito, y por ende, gran parte de su información se le atribuye a esta variable. Por otro lado, las variables de meses irregulares y pagos nulos, junto con la variable original de pagos pendientes tienen relevancia al momento de discriminar usuarios.
+En esta tabla se puede observar que las varibles de incremento del estado de cuenta y de pagos, aportan poca diferencia en el porcentaje predicho por el modelo. Esto quizá se deba a que ambas están correlacionadas con el límite de crédito, y por ende, gran parte de su información se le atribuye a esta variable. Por otro lado, las variables de meses irregulares y pagos nulos, junto con la variable original de pagos pendientes tienen relevancia al momento de discriminar usuarios.
 
 El coeficiente de Edad indica que esta variable es poco importante. Esta variable había sido relacionada con las variables del grado educativo y el estado marital, las cuales tienen bastante poder discriminatorio, y recopilan mejor la diferencia entre probabilidad de impago y edad que se había observado previamente.
 
@@ -357,6 +358,6 @@ with(fdata,table(default,FP))
 ```
 
 ```{r}
-ggplot(aes(x=FP,fill=default),data=fdata)+geom_bar(position = position_stack())+labs(title="Proporción de impago",subtitle = "Por categoría predicha")+xlab("Categoría")+ylab("Proporción")
+ggplot(aes(x=FP,fill=default),data=fdata)+geom_bar(position = position_stack())+labs(title="Proporción de impago",subtitle = "Por categoría predicha")+xlab("Categoría")+ylab("Cantidad de Usuarios")
 ```
 
