@@ -72,7 +72,7 @@ tdata$MONTHSBEFORE <- as.numeric(tdata$MONTHSBEFORE)
 ```
 
 
-## Prevalencia de default
+## Prevalencia de impago (actual)
 
 ```{r}
 prevalence <- mean(data$default==1)
@@ -98,23 +98,23 @@ Mientras que los registros de las variables PAY_X y BILL_AMTX están fuertemente
 ```{r}
 data$default <- factor(data$default)
 
-ggplot(aes(x=SEX,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de default",subtitle="Por género")+xlab("Género")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
+ggplot(aes(x=SEX,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de impago",subtitle="Por género")+xlab("Género")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
 ```
 
-Se observa una muy sutil diferencia en los porcentajes de probabilidad de default. La linea horizontal marca la prevalencia. Para corroborar esta correlación, aunque sutil, se realiza un test chi-square.
+Se observa una muy sutil diferencia en los porcentajes de probabilidad de impago. La linea horizontal marca la prevalencia. Para corroborar esta correlación, aunque sutil, se realiza un test chi-square.
 
 ```{r}
 chisq.test(data$SEX,data$default)
 ```
-Se verifica entonces la correlación entre género e incidencia de default.
+Se verifica entonces la correlación entre género e incidencia de impago.
 
 ### Grado de Educación
 
 ```{r}
-ggplot(aes(x=EDUCATION,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de Default",subtitle="Por grado de educación")+xlab("Grado")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
+ggplot(aes(x=EDUCATION,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de Impago",subtitle="Por grado de educación")+xlab("Grado")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
 ```
 
-En cuanto al grado educativo, se observan ligeras diferencias entre las categorias, resaltando las categorías "Desconocido" y "Otra", donde la probilidad de default es marcadamente menor. 
+En cuanto al grado educativo, se observan ligeras diferencias entre las categorias, resaltando las categorías "Desconocido" y "Otra", donde la probabilidad de impago es marcadamente menor. 
 
 Sin embargo, se podría pensar que esta diferencia se debe a la escaza cantidad de registros en dichas categorías y que, por lo tanto, en realidad esa diferencia es debida a solo unas cuantas personas que ejercen mucha influencia en el porcentaje. Si construimos la tabla de contingencia para esta relación y realizamos un test chi-square...
 
@@ -126,7 +126,7 @@ El p-value para este test es muy bajo y por lo tanto verifica la relación.
 ### Estado Marital
 
 ```{r}
-ggplot(aes(x=MARRIAGE,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de Default",subtitle="Por estado marital")+xlab("Estado")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
+ggplot(aes(x=MARRIAGE,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de Impago",subtitle="Por estado marital")+xlab("Estado")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
 ```
 
 La diferencia entre los grupos "Casado-Otro" es prácticamente nula, sin embargo, el grupo de Solteros tiene un menor indice de impago.
@@ -134,7 +134,7 @@ La diferencia entre los grupos "Casado-Otro" es prácticamente nula, sin embargo
 ### Edad
 
 ```{r}
-ggplot(aes(x=AGE,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de Default",subtitle="Por edad")+xlab("Años")+ylab("Probabilidad de Impago")+geom_hline(yintercept = prevalence)
+ggplot(aes(x=AGE,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de Impago",subtitle="Por edad")+xlab("Años")+ylab("Probabilidad de Impago")+geom_hline(yintercept = prevalence)
 ```
 
 En el intevalo de 20 a 50 años se notan valores ligeramente menores que en el intervalo de 50 en adelante. Este ligera diferencia se puede deber a la relación de la edad con otras variables demográficas:
@@ -160,18 +160,24 @@ Como se puede ver en la matriz de correlación, los valores que tienen mayor cor
 Sin embargo, y es de esperarse, los 6 observaciones de la variable PAY_n estan estrechamente relacionadas. Por lo que, incluir todas esas observaciones en un futuro modelo, puede incrementar la varianza de los coeficientes en una regresión. 
 
 ```{r}
-ggplot(aes(x=MONTHSBEFORE, y=PENDINGPAYS, fill=default),data=tdata)+geom_boxplot(outlier.shape = NA, alpha=0.6)+labs(title="Pagos pendientes cada mes", subtitle="vs Impago")+ylab("Pagos Pendientes")+xlab("Meses antes")
+
+tdata$MONTHSBEFORE <- as.factor(tdata$MONTHSBEFORE)
+
+fcount <- tdata %>% filter(PENDINGPAYS>0) %>% group_by(MONTHSBEFORE) %>% summarise(cnt=length(ID))
+fcount$default <- factor(rep(1,6))
+
+ggplot(data=tdata,aes(x=MONTHSBEFORE, y=PENDINGPAYS, fill=default))+geom_boxplot(outlier.shape = NA, alpha=0.6)+labs(title="Pagos pendientes cada mes", subtitle="vs Impago")+ylab("Pagos Pendientes")+xlab("Meses antes")+geom_text(data=fcount,aes(x=MONTHSBEFORE,label=cnt,y=7))
 ```
-Solo el primer registro inmediatamente anterior tiene los promedios para ambos grupos en un valor distinto. Los demás registros, especialmente el 5 y 6, no parecen aportar mucho criterio, al momento de discriminar a los grupos. Gradualmente, el grupo de default fue desplazando su rango intercuartílico, siendo cada vez más irregulares. Cabe resaltar que, no parece haber una cantidad significativa de casos irregulares en los meses -5 y -6. Lo que puede sugerir que este dataset fue constituido por clientes nuevos, o recién regularizados. 
+Solo el primer registro inmediatamente anterior tiene los promedios para ambos grupos en un valor distinto. Los demás registros, especialmente el 5 y 6, no parecen aportar mucho criterio, al momento de discriminar a los grupos. Gradualmente, el grupo de impago fue desplazando su rango intercuartílico, siendo cada vez más irregulares. Cabe resaltar que, no parece haber una cantidad significativa de casos irregulares en los meses -5 y -6. Lo que puede sugerir que este dataset fue constituido por clientes con poca antiguedad, o recién regularizados. 
 
 Se grafica la distribución de los valores de PAY_1 (el registro más actual y por ende, el más significativo para la probabilidad impago").
 
 
 ```{r}
-ggplot(aes(x=PAY_1,fill=default),data=data)+geom_bar(alpha=0.4, position= position_stack())+labs(title="Probabilidad de impago",subtitle = "En función del número de pagos vencidos el mes anterior")+xlab("Default")+ylab("Probabilidad de default")+coord_cartesian(xlim=c(-4,10))+geom_hline(yintercept = prevalence)+geom_vline(xintercept = 0)+coord_cartesian(xlim=c(-5,5))
+ggplot(aes(x=PAY_1,fill=default),data=data)+geom_bar(alpha=0.4, position= position_stack())+labs(title="Probabilidad de impago",subtitle = "En función del número de pagos vencidos el mes anterior")+xlab("Pagos atrasados")+ylab("Probabilidad de Impago")+coord_cartesian(xlim=c(-4,10))+geom_hline(yintercept = prevalence)+geom_vline(xintercept = 0)+coord_cartesian(xlim=c(-5,5))+scale_x_continuous(breaks=seq(-5,5,1))
 ```
 
-Se aprecia un notable incremento en la probabilidad de impago cuando el número de pagos vencidos acumulados el mes anterior es mayor a 1. 
+Se aprecia un notable incremento en la probabilidad de impago cuando el número de pagos vencidos acumulados el mes anterior es mayor a 1. La probabilidad pasa a ser mayor que 50% cuando se tienen dos pagos atrasados. Por lo que cualquier usuario que tenga dos pagos atrasados es más probable que empeore, y consecuentemente aumente aún más la probabilidad de empeorar en los meses siguientes.
 
 Se realiza un t-test para tener certeza en la existencia de esta diferencia en las distribuciones:
 ```{r}
@@ -211,7 +217,7 @@ Para esta variable es más notoria una diferencia: El promedio de la cantidad pa
 
 ### Historial de Amortizaciones
 
-A pesar que la matriz de correlación indique que los valores individuales del historial de amortizaciones no estan relacionados directamente con la incidencia de default, se puede deducir que el número de registros con pagos de $0 puede indicar una tendencia a faltar el siguiente pago.
+A pesar que la matriz de correlación indique que los valores individuales del historial de amortizaciones no estan relacionados directamente con la incidencia de impago, se puede deducir que el número de registros con pagos de $0 puede indicar una tendencia a faltar el siguiente pago.
 
 ```{r}
 userg <- tdata %>% group_by(ID,default) %>% summarize(NNULLPAYMENTS = sum(AMORTIZATION==0))
@@ -220,7 +226,7 @@ userg <- tdata %>% group_by(ID,default) %>% summarize(NNULLPAYMENTS = sum(AMORTI
 ggplot(aes(x=NNULLPAYMENTS,fill=default),data=userg)+geom_bar(position=position_fill())+xlab("Numero de pagos nulos")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
 ```
 
-Se observa un incremento en la probabilidad de default conforme el número de pagos nulos es más alto. 
+Se observa un incremento en la probabilidad de impago conforme el número de pagos nulos es más alto. 
 
 
 ### Número de meses con pagos atrasados
@@ -254,6 +260,7 @@ Se confirma que el estado de cuenta de los cumplidores tiende a aumentar más qu
 data <- mutate(data,INCRPAYS=PAY_AMT1-PAY_AMT6)
 ggplot(aes(y=INCRPAYS,x=default,fill=default),data=data)+geom_boxplot()+coord_cartesian(ylim=c(-700,3000))+labs(title="Crecimiento de los pagos",subtitle = "vs Impago")+ylab("Cantidad [$]")+xlab("Impago")
 ```
+
 Se confirma que en el caso de los cumplidores aumenta en mayor medida el tamaño de sus pagos con el paso del tiempo.
 
 ### Normalizado de Variables Financieras
@@ -307,6 +314,19 @@ roc.plot(as.numeric(data$default)-1,predMat,legend=TRUE)
 
 ```
 
+### Variables Ajustadas
+```{r}
+exp(model2$finalModel$coefficients)
+```
+
+En esta tabla se puede observar que las varibles de incremento del estad de cuenta y de pagos, aportan poca diferencia en el porcentaje predicho por el modelo. Esto quizá se deba a que ambas están correlacionadas con el límite de crédito, y por ende, gran parte de su información se le atribuye a esta variable. Por otro lado, las variables de meses irregulares y pagos nulos, junto con la variable original de pagos pendientes tienen relevancia al momento de discriminar usuarios.
+
+El coeficiente de Edad indica que esta variable es poco importante. Esta variable había sido relacionada con las variables del grado educativo y el estado marital, las cuales tienen bastante poder discriminatorio, y recopilan mejor la diferencia entre probabilidad de impago y edad que se había observado previamente.
+
+```{r}
+summary(model2$finalModel)
+```
+
 ### Seleccion de valores de corte
 ```{r}
 fdata$PRED <- model2$finalModel$fitted.values
@@ -337,6 +357,6 @@ with(fdata,table(default,FP))
 ```
 
 ```{r}
-ggplot(aes(x=FP,fill=default),data=fdata)+geom_bar(position = position_fill())+labs(title="Proporción de default",subtitle = "Por categoría predicha")+xlab("Categoría")+ylab("Proporción")
+ggplot(aes(x=FP,fill=default),data=fdata)+geom_bar(position = position_stack())+labs(title="Proporción de impago",subtitle = "Por categoría predicha")+xlab("Categoría")+ylab("Proporción")
 ```
 
