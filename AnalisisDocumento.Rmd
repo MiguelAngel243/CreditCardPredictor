@@ -1,7 +1,7 @@
 ---
 title: "Analisis Exploratorio"
 author: "Miguel Angel G.G"
-date: "28/1/2021"
+date: "3/Feb/2021"
 output: html_document
 ---
 
@@ -192,7 +192,7 @@ Se puede observar que, conforme el límite de crédito aumenta, disminuye la pro
 ```{r}
 tdata$MONTHSBEFORE <- factor(tdata$MONTHSBEFORE)
 
-ggplot(aes(x=MONTHSBEFORE, y=BILL, fill=default),data=tdata)+geom_boxplot(outlier.shape = NA, alpha=0.6)+coord_cartesian(ylim=c(-20000,98000))+labs(title="Evolución y distribución",subtitle = "Del historial del Estado de Cuenta")+xlab("Meses antes")+ylab("Estado de Cuenta (Estandarizado)")
+ggplot(aes(x=MONTHSBEFORE, y=BILL, fill=default),data=tdata)+geom_boxplot(outlier.shape = NA, alpha=0.6)+coord_cartesian(ylim=c(-20000,98000))+labs(title="Evolución y distribución",subtitle = "Del historial del Estado de Cuenta")+xlab("Meses antes")+ylab("Estado de Cuenta")
 ```
 
 No hay un desplazamiento sustancial del promedio del estado de cuenta entre ambos grupos, sin embargo, se observa que el 3er cuartil del grupo de los incumplidores está por debajo del mismo cuantil para los cumplidores, lo que significa que los pagos más altos de los cumplidores por lo general son más altos que los pagos más altos de las incumplidores. Esto bien puede estar relacionado con que los usuarios incumplidores tienen límites de crédito más bajos.
@@ -202,7 +202,7 @@ Conforme pasa el tiempo, los estados de cuenta altos (valor que marca el 3er cua
 ### Historial de Amortizaciones
 
 ```{r}
-ggplot(aes(x=MONTHSBEFORE, y=AMORTIZATION, fill=default),data=tdata)+geom_boxplot(outlier.shape = NA, alpha=0.6)+coord_cartesian(ylim=c(-1000,7500))+labs(title="Evolución y distribución",subtitle = "Del historial de Amortizaciones")+xlab("Meses antes")+ylab("Cantidad Amortizada (Estandarizado)")
+ggplot(aes(x=MONTHSBEFORE, y=AMORTIZATION, fill=default),data=tdata)+geom_boxplot(outlier.shape = NA, alpha=0.6)+coord_cartesian(ylim=c(-1000,7500))+labs(title="Evolución y distribución",subtitle = "Del historial de Amortizaciones")+xlab("Meses antes")+ylab("Cantidad Amortizada")
 ```
 
 Para esta variable es más notoria una diferencia: El promedio de la cantidad pagada cada mes por los incumplidores es más baja que la cantidad promedio pagada por los cumplidores. La evolución de los pagos parece tener una tendencia creciente tanto para el promedio como para el tercer cuartil de ambos grupos, aunque al igual que en variable BILL_AMT, esta tendencia es más marcada en el grupo de los cumplidores.
@@ -242,8 +242,8 @@ Se observa una proporcionalidad lineal entre el número de meses con irregularid
 Al analizar la evolución de la variable BILL_X, lo más destacable era el desplazamiento gradual del tercer cuartil. Se construye una variable que indique cuánto incrementó el estado de cuenta desde el registro más antiguo.
 
 ```{r}
-data <- mutate(data,USAGE=(BILL_AMT1-BILL_AMT6))
-ggplot(aes(y=USAGE,x=default,fill=default),data=data)+geom_boxplot()+coord_cartesian(ylim=c(-4000,30000))+labs(title="Crecimiento del estado de Cuenta",subtitle = "vs Impago")+ylab("Cantidad [$]")+xlab("Impago")
+data <- mutate(data,INCRBILL=(BILL_AMT1-BILL_AMT6))
+ggplot(aes(y=INCRBILL,x=default,fill=default),data=data)+geom_boxplot()+coord_cartesian(ylim=c(-4000,30000))+labs(title="Crecimiento del estado de Cuenta",subtitle = "vs Impago")+ylab("Cantidad [$]")+xlab("Impago")
 ```
 
 Se confirma que el estado de cuenta de los cumplidores tiende a aumentar más que el estado de cuenta de los incumplidores.
@@ -251,8 +251,8 @@ Se confirma que el estado de cuenta de los cumplidores tiende a aumentar más qu
 ###Incremento de la cantidad pagada
 
 ```{r}
-data <- mutate(data,INCRAMORT=PAY_AMT1-PAY_AMT6)
-ggplot(aes(y=INCRAMORT,x=default,fill=default),data=data)+geom_boxplot()+coord_cartesian(ylim=c(-700,3000))+labs(title="Crecimiento de los pagos",subtitle = "vs Impago")+ylab("Cantidad [$]")+xlab("Impago")
+data <- mutate(data,INCRPAYS=PAY_AMT1-PAY_AMT6)
+ggplot(aes(y=INCRPAYS,x=default,fill=default),data=data)+geom_boxplot()+coord_cartesian(ylim=c(-700,3000))+labs(title="Crecimiento de los pagos",subtitle = "vs Impago")+ylab("Cantidad [$]")+xlab("Impago")
 ```
 Se confirma que en el caso de los cumplidores aumenta en mayor medida el tamaño de sus pagos con el paso del tiempo.
 
@@ -273,10 +273,70 @@ data$LIMIT_BAL <- scale(data$LIMIT_BAL)
 
 ## Reducción de Variables con PCA
 ```{r}
+data <- join_all(list(data,select(userg,ID,NNULLPAYMENTS),select(seg,ID,IRREGMONTHS)),by="ID")
+
+data$INCRBILL <- scale(data$INCRBILL)
+data$INCRPAYS <- scale(data$INCRPAYS)
+
 billpcacalc <- preProcess(data[,13:18],method="pca",scale=FALSE,pcaComp = 2)
 amtpcacalc <- preProcess(data[,19:24],method="pca",scale=FALSE,pcaComp = 2)
 
 rdata <- predict(billpcacalc,data)
+rdata <- predict(amtpcacalc,rdata)
 
+```
+
+## Modelado
+
+Se crearán tres modelos  de regresión logística:
+1. Con variables originales
+2. Con variables derivadas sin todos los 6 registros históricos
+3. Con variables reducidas por PCA
+
+```{r warning=FALSE}
+odata <- select(data,2:25)
+fdata <- select(data,2,3,4,5,6,7,13,19,26,27,28,29,25)
+rfdata <- select(rdata,2,3,4,5,6,7,16,17,18,19,20,21,13)
+model1 <- train(default~.,data=odata,method="glm")
+model2 <- train(default~.,data=fdata,method="glm")
+model3 <- train(default~.,data=rfdata,method="glm")
+predMat <- matrix(c(model1$finalModel$fitted.values,model2$finalModel$fitted.values,model3$finalModel$fitted.values),30000,3)
+
+suppressPackageStartupMessages(library(verification))
+roc.plot(as.numeric(data$default)-1,predMat,legend=TRUE)
+
+```
+
+### Seleccion de valores de corte
+```{r}
+fdata$PRED <- model2$finalModel$fitted.values
+quantile(dplyr::filter(fdata,default=="1")$PRED)
+```
+```{r}
+quantile(dplyr::filter(fdata,default=="0")$PRED)
+```
+
+Si queremos que en el intervalo de "Riesgo bajo" se encuentre el 20% de los que incumplirán:
+```{r}
+a <- quantile(dplyr::filter(fdata,default=="1")$PRED,0.2)
+a
+```
+Y que en el intervalo de "Riesgo Miedio" y "Riesgo bajo" haya el 60%:
+```{r}
+b <- quantile(dplyr::filter(fdata,default=="1")$PRED,0.6)
+b
+```
+Realizamos los cortes a a variable predicha:
+```{r}
+fdata$FP <- cut(fdata$PRED,c(0,a,b,1),labels = c("Bajo","Medio","Alto"))
+```
+
+La matriz de predicción quedaría:
+```{r}
+with(fdata,table(default,FP))
+```
+
+```{r}
+ggplot(aes(x=FP,fill=default),data=fdata)+geom_bar(position = position_fill())+labs(title="Proporción de default",subtitle = "Por categoría predicha")+xlab("Categoría")+ylab("Proporción")
 ```
 
