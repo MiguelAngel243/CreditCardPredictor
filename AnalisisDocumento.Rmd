@@ -26,7 +26,7 @@ str(data)
 ```
 En este conjunto de datos, se tienen 30,000 registros, con 25 variables cada una. Algunos pertenecientes a datos demográficos, y otros a datos de su respectiva cuenta bancaria.
 
-Los datos financieros BILL_AMTX y PAY_AMTX tienen magnitudes diferentes para cada usuario, por lo tanto dichas variables tendrán que ser escaladas.
+Los datos financieros BILL_AMTX y PAY_AMTX tienen magnitudes diferentes para cada usuario, por lo tanto dichas variables tendrán que ser escaladas en caso de usar regresión regularizada. 
 
 Los datos categoricos (sexo, educación y estado marital) están codificados como enteros. Se procede a dejar las categorías explícitas:
 ```{r}
@@ -97,6 +97,7 @@ Mientras que los registros de las variables PAY_X y BILL_AMTX están fuertemente
 
 ```{r}
 data$default <- factor(data$default)
+levels(data$default) <- c("No","Si")
 
 ggplot(aes(x=SEX,fill=default),data=data)+geom_bar(position=position_fill())+labs(title="Probabilidad de impago",subtitle="Por género")+xlab("Género")+ylab("Probabilidad")+geom_hline(yintercept = prevalence)
 ```
@@ -264,21 +265,6 @@ ggplot(aes(y=INCRPAYS,x=default,fill=default),data=data)+geom_boxplot()+coord_ca
 
 Se confirma que en el caso de los cumplidores aumenta en mayor medida el tamaño de sus pagos con el paso del tiempo.
 
-### Normalizado de Variables Financieras
-```{r}
-i <- 19:24
-m <- mean(tdata$AMORTIZATION)
-s <- sd(tdata$AMORTIZATION)
-for(a in i){ data[,a]<-(data[,a]-m)/s}
-
-m <- mean(tdata$BILL)
-s <- sd(tdata$BILL)
-i <- 13:18
-for(a in i){ data[,a]<-(data[,a]-m)/s}
-data$LIMIT_BAL <- scale(data$LIMIT_BAL)
-
-```
-
 ## Reducción de Variables con PCA
 ```{r}
 data <- join_all(list(data,select(userg,ID,NNULLPAYMENTS),select(seg,ID,IRREGMONTHS)),by="ID")
@@ -286,8 +272,8 @@ data <- join_all(list(data,select(userg,ID,NNULLPAYMENTS),select(seg,ID,IRREGMON
 data$INCRBILL <- scale(data$INCRBILL)
 data$INCRPAYS <- scale(data$INCRPAYS)
 
-billpcacalc <- preProcess(data[,13:18],method="pca",scale=FALSE,pcaComp = 2)
-amtpcacalc <- preProcess(data[,19:24],method="pca",scale=FALSE,pcaComp = 2)
+billpcacalc <- preProcess(data[,13:18],method="pca",pcaComp = 2)
+amtpcacalc <- preProcess(data[,19:24],method="pca",pcaComp = 2)
 
 rdata <- predict(billpcacalc,data)
 rdata <- predict(amtpcacalc,rdata)
@@ -296,26 +282,83 @@ rdata <- predict(amtpcacalc,rdata)
 
 ## Modelado
 
+### Regresión Logística 
+
 Se crearán tres modelos  de regresión logística:
 1. Con variables originales
 2. Con variables derivadas sin todos los 6 registros históricos
 3. Con variables reducidas por PCA
 
-```{r warning=FALSE}
+```{r warning=FALSE, cache=TRUE}
 odata <- select(data,2:25)
 fdata <- select(data,2,3,4,5,6,7,13,19,26,27,28,29,25)
 rfdata <- select(rdata,2,3,4,5,6,7,16,17,18,19,20,21,13)
-model1 <- train(default~.,data=odata,method="glm")
-model2 <- train(default~.,data=fdata,method="glm")
-model3 <- train(default~.,data=rfdata,method="glm")
-predMat <- matrix(c(model1$finalModel$fitted.values,model2$finalModel$fitted.values,model3$finalModel$fitted.values),30000,3)
+
+cntl <- trainControl(method="cv", summaryFunction = twoClassSummary, classProbs = TRUE)
+
+model1 <- train(default~.,data=odata,method="glm",metric="ROC", trControl= cntl)
+model2 <- train(default~.,data=fdata,method="glm",metric="ROC", trControl= cntl)
+model3 <- train(default~.,data=rfdata,method="glm",metric="ROC", trControl= cntl)
+
+predMat <- matrix(c(
+  model1$finalModel$fitted.values,
+  model2$finalModel$fitted.values,
+  model3$finalModel$fitted.values
+  ),30000,3)
 
 suppressPackageStartupMessages(library(verification))
-roc.plot(as.numeric(data$default)-1,predMat,legend=TRUE)
+roc.plot(as.numeric(data$default)-1,predMat,legend=TRUE,plot.thres =NULL, ylab="% Detección (Sensibilidad)",xlab="% Falsa Alarma (1-Specificidad)",leg.text = c("Var. Originales","Var. Derivadas","Var. Reducidas"),main="ROC de Modelos de Regresión Logística")
 
 ```
 
-### Variables Ajustadas
+### Modelos Alternativos
+
+Además, se construirán adicionalmente:
+
+4. Bosque aleatorio en base a variables derivadas
+4. Máquina de Soporte Vectorial Lineal en base a variables derivadas.
+5. Modelo de Análisis de Discrimintante Lineal en base a variables originales.
+
+Para la SVM se hará un barrido del parámetro Costo.
+
+```{r}
+model4 <- train(default~.,data=fdata,method="rf",metric="ROC",trControl=cntl)
+
+gr <- expand.grid(C=c(0,0.01,0.03,0.05,0.06,0.1))
+model5 <- train(default~.,data=fdata,method="svmLinear",tuneGrid=gr,metric="ROC",trControl=cntl,preProcess=c("center","scale"))
+
+model6 <- lda(default~.,data=odata)
+
+predMat <- matrix(c(
+  model4$finalModel$votes[,2],
+  predict(model5,fdata,"prob")[,2],
+  predict(model6,odata)$posterior[,2]
+  ),30000,3)
+
+suppressPackageStartupMessages(library(verification))
+roc.plot(as.numeric(data$default)-1,predMat,legend=TRUE,plot.thres =NULL, ylab="% Detección (Sensibilidad)",xlab="% Falsa Alarma (1-Specificidad)",leg.text = c("Random Forest","SVM","LDA"), main="ROC de Modelos Alternativos")
+```
+
+
+### Selección de Modelo
+
+Se obtienen las estimaciones del parámetro AUC como criterio para evaluar el rendimiento real de los modelos mediante Cross-Validation a 10 k-folds:
+
+```{r}
+library(knitr)
+kable(rbind(rbind(model1$results,model2$results,model3$results)[,2:7],model4$results[1,2:7]),caption="Rendimiento real estimado de Modelos")
+```
+
+Se selecciona el modelo de random forest para proceder a la optimización.
+
+La matriz de confusion para este modelo, con un punto de corte de 0.5:
+
+```{r}
+confusionMatrix(model4$finalModel$predicted,data$default,positive="Si")
+```
+
+### Interpretación de Coeficientes
+
 ```{r}
 exp(model2$finalModel$coefficients)
 ```
@@ -324,27 +367,23 @@ En esta tabla se puede observar que las varibles de incremento del estado de cue
 
 El coeficiente de Edad indica que esta variable es poco importante. Esta variable había sido relacionada con las variables del grado educativo y el estado marital, las cuales tienen bastante poder discriminatorio, y recopilan mejor la diferencia entre probabilidad de impago y edad que se había observado previamente.
 
-```{r}
-summary(model2$finalModel)
-```
-
 ### Seleccion de valores de corte
 ```{r}
 fdata$PRED <- model2$finalModel$fitted.values
-quantile(dplyr::filter(fdata,default=="1")$PRED)
+quantile(dplyr::filter(fdata,default=="Si")$PRED)
 ```
 ```{r}
-quantile(dplyr::filter(fdata,default=="0")$PRED)
+quantile(dplyr::filter(fdata,default=="No")$PRED)
 ```
 
 Si queremos que en el intervalo de "Riesgo bajo" se encuentre el 20% de los que incumplirán:
 ```{r}
-a <- quantile(dplyr::filter(fdata,default=="1")$PRED,0.2)
+a <- quantile(dplyr::filter(fdata,default=="Si")$PRED,0.2)
 a
 ```
 Y que en el intervalo de "Riesgo Miedio" y "Riesgo bajo" haya el 60%:
 ```{r}
-b <- quantile(dplyr::filter(fdata,default=="1")$PRED,0.6)
+b <- quantile(dplyr::filter(fdata,default=="Si")$PRED,0.6)
 b
 ```
 Realizamos los cortes a a variable predicha:
