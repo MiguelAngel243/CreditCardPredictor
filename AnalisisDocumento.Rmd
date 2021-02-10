@@ -13,6 +13,8 @@ library(reshape2)
 library(ggplot2)
 library(psych)
 library(caret)
+library(knitr)
+library(forcats)
 ```
 
 
@@ -20,7 +22,7 @@ library(caret)
 
 
 ```{r pressure, echo=FALSE}
-
+set.seed(142)
 data <- read.csv("Credit_Card.csv")
 str(data)
 ```
@@ -269,9 +271,6 @@ Se confirma que en el caso de los cumplidores aumenta en mayor medida el tamaño
 ```{r}
 data <- join_all(list(data,select(userg,ID,NNULLPAYMENTS),select(seg,ID,IRREGMONTHS)),by="ID")
 
-data$INCRBILL <- scale(data$INCRBILL)
-data$INCRPAYS <- scale(data$INCRPAYS)
-
 billpcacalc <- preProcess(data[,13:18],method="pca",pcaComp = 2)
 amtpcacalc <- preProcess(data[,19:24],method="pca",pcaComp = 2)
 
@@ -286,86 +285,128 @@ rdata <- predict(amtpcacalc,rdata)
 
 Se crearán tres modelos  de regresión logística:
 1. Con variables originales
-2. Con variables derivadas sin todos los 6 registros históricos
-3. Con variables reducidas por PCA
+2. Con variables derivadas, exlcuyendo los 5 registros más antiguos para las variables históricas.
+3. Con variables históricas BILL_X y PAY_AMT_X reducidas por PCA
+4. Regresión Logística regularizada por modalidad ElasticNet. 
 
 ```{r warning=FALSE, cache=TRUE}
-odata <- select(data,2:25)
-fdata <- select(data,2,3,4,5,6,7,13,19,26,27,28,29,25)
-rfdata <- select(rdata,2,3,4,5,6,7,16,17,18,19,20,21,13)
+odata <- dplyr::select(data,2:25)
+fdata <- dplyr::select(data,2,3,4,5,6,7,13,19,26,27,28,29,25)
+rfdata <- dplyr::select(rdata,2,3,4,5,6,7,16,17,18,19,20,21,13)
 
-cntl <- trainControl(method="cv", summaryFunction = twoClassSummary, classProbs = TRUE)
+cntl <- trainControl(method="cv", number=5, summaryFunction = twoClassSummary, classProbs = TRUE)
 
 model1 <- train(default~.,data=odata,method="glm",metric="ROC", trControl= cntl)
 model2 <- train(default~.,data=fdata,method="glm",metric="ROC", trControl= cntl)
 model3 <- train(default~.,data=rfdata,method="glm",metric="ROC", trControl= cntl)
 
+```
+
+
+Para la regresión regularizada, se usa el dataset con todas las variables históricas y las variables derivadas, para que así el algoritmo de Red Elástica pueda realizar una selección automatizada de las características relevantes.
+
+Para optimizar el modelo de Red Elástica, se emplea un grid para los parámetros alpha y lambda.
+
+
+
+```{r cache=TRUE}
+gr <- expand.grid(alpha=seq(0,1,0.1),lambda=seq(0.0001,0.02,0.001))
+model4 <- train(default~.-ID,data=data,method="glmnet",metric="ROC",trControl=cntl,tuneGrid=gr,preProcess=c("center","scale"))
+kable(model4$finalModel$tuneValue)
+```
+
+En efecto, es mejor realizar una mezcla entre los modelos Lasso y Ridge para optimizar el área bajo la curva ROC.
+
+
+```{r}
+
 predMat <- matrix(c(
   model1$finalModel$fitted.values,
   model2$finalModel$fitted.values,
-  model3$finalModel$fitted.values
-  ),30000,3)
+  model3$finalModel$fitted.values,
+  predict(model4,s=model4$finalModel$tuneValue$lambda,type="prob",data)[,2]
+  ),30000,4)
 
 suppressPackageStartupMessages(library(verification))
-roc.plot(as.numeric(data$default)-1,predMat,legend=TRUE,plot.thres =NULL, ylab="% Detección (Sensibilidad)",xlab="% Falsa Alarma (1-Specificidad)",leg.text = c("Var. Originales","Var. Derivadas","Var. Reducidas"),main="ROC de Modelos de Regresión Logística")
+roc.plot(as.numeric(data$default)-1,predMat,legend=TRUE,plot.thres =NULL, ylab="% Detección (Sensibilidad)",xlab="% Falsa Alarma (1-Specificidad)",leg.text = c("Var. Originales","Var. Derivadas","Var. Reducidas","Regresión Regularizada"),main="ROC de Modelos de Regresión Logística")
 
 ```
+
+Se obtienen las estimaciones del parámetro AUC como criterio para evaluar el rendimiento real de los modelos mediante Cross-Validation a 10 k-folds:
+
+```{r}
+kable(rbind(rbind(
+  model1$results,
+  model2$results,
+  model3$results
+  )[,2:7],
+  model4$results[model4$results$alpha==model4$bestTune$alpha &         model4$results$lambda==model4$bestTune$lambda,3:8])
+  ,caption="Rendimiento real estimado de Modelos R.L")
+```
+
+Es notoria la mejoría observada en el área bajo la curva ROC para los modelos que no usan todos los 6 registros pasados de las variables historicas. Las variables derivadas parecen demostrar efectividad al condensar la información de la dinamica de los registros BILL_X y PAY_AMTX ya que tiene prácticamente el mismo poder predictivo que aquel modelo que usa las variables reducidas por PCA.
+
+Sin embargo, el modelo producido por regresión regularizada parece recolectar mejor (aunque en forma muy sutil) toda la información presente en el dataset. De este modelo resalta una disminución en la varianza del valor de ROC, lo que podría estar relacionado con un menor sobreajuste, dado que la regresión regularizada mitiga los efectos de las variables correlacionadas y que por ende, provocan sobreajuste.
+
+### Interpretación de Coeficientes del modelo 4
+
+```{r}
+coef <- as.data.frame(as.matrix(coef(model4$finalModel,model4$bestTune$lambda)))
+colnames(coef) <- "Valor"
+coef$Valor <- exp(coef$Valor)
+coef <- arrange(coef,desc(Valor))
+ggplot(aes(x=fct_reorder(rownames(coef),Valor),y=Valor),data=coef)+geom_point(color="midnightblue")+
+  labs(title="Coeficientes",subtitle="Del modelo de regresión regularizada")+
+  theme(axis.text.x =  element_text(angle=90))+xlab("Variable")
+
+```
+El valor de la variable categórica Educación parece aportar mucho poder predictivo. Sin embargo, dado que gran parte de la población se ubica en los niveles Licenciatura-Maestría-Preparatoria, y aunado a que la diferencia entre sus respectivos coeficientes es baja, la variable Educación es en la práctica menos útil al momento de predecir.
+
+La variable Meses Irregulares y Pagos pendientes el mes pasado (PAY_1) tienen un coeficiente alto, indicando relevancia en la predicción. Todas las variables numéricas no tienen interpretación directa con unidades monetarias, años, o pagos pendientes, ya que todas las variables fueron estandarizadas para aplicar el metodo de regularización.
+
 
 ### Modelos Alternativos
 
 Además, se construirán adicionalmente:
 
-4. Bosque aleatorio en base a variables derivadas
-4. Máquina de Soporte Vectorial Lineal en base a variables derivadas.
-5. Modelo de Análisis de Discrimintante Lineal en base a variables originales.
+5. Bosque aleatorio en base a variables derivadas
+6. Máquina de Soporte Vectorial Lineal en base a variables derivadas.
+7. Modelo de Análisis de Discriminante Lineal en base a variables originales.
 
-Para la SVM se hará un barrido del parámetro Costo.
 
-```{r}
-model4 <- train(default~.,data=fdata,method="rf",metric="ROC",trControl=cntl)
-
-gr <- expand.grid(C=c(0,0.01,0.03,0.05,0.06,0.1))
-model5 <- train(default~.,data=fdata,method="svmLinear",tuneGrid=gr,metric="ROC",trControl=cntl,preProcess=c("center","scale"))
-
-model6 <- lda(default~.,data=odata)
-
-predMat <- matrix(c(
-  model4$finalModel$votes[,2],
-  predict(model5,fdata,"prob")[,2],
-  predict(model6,odata)$posterior[,2]
-  ),30000,3)
-
-suppressPackageStartupMessages(library(verification))
-roc.plot(as.numeric(data$default)-1,predMat,legend=TRUE,plot.thres =NULL, ylab="% Detección (Sensibilidad)",xlab="% Falsa Alarma (1-Specificidad)",leg.text = c("Random Forest","SVM","LDA"), main="ROC de Modelos Alternativos")
+```{r cache=TRUE}
+model5 <- train(default~.,data=fdata,method="rf",metric="ROC",trControl=cntl)
+dplyr::arrange(data.frame(model5$finalModel$importance),desc(MeanDecreaseGini))
 ```
 
+Se enlistan en orden decreciente las variables dentro del modelo RandomForest por importancia según el criterio Gini. El más importante es la cantidad de pagos pendientes el mes pasado, seguido de dos variables derivadas y los registros
 
-### Selección de Modelo
-
-Se obtienen las estimaciones del parámetro AUC como criterio para evaluar el rendimiento real de los modelos mediante Cross-Validation a 10 k-folds:
-
-```{r}
-library(knitr)
-kable(rbind(rbind(model1$results,model2$results,model3$results)[,2:7],model4$results[1,2:7]),caption="Rendimiento real estimado de Modelos")
-```
-
-Se selecciona el modelo de random forest para proceder a la optimización.
 
 La matriz de confusion para este modelo, con un punto de corte de 0.5:
 
 ```{r}
-confusionMatrix(model4$finalModel$predicted,data$default,positive="Si")
+confusionMatrix(model5$finalModel$predicted,data$default,positive="Si")
 ```
 
-### Interpretación de Coeficientes
 
-```{r}
-exp(model2$finalModel$coefficients)
+Para la SVM se hará un barrido del parámetro Costo.
+
+```{r }
+gr <- expand.grid(C=c(0.01,0.03,0.05,0.06,0.1))
+model6 <- train(default~.,data=fdata,method="svmLinear",tuneGrid=gr,metric="ROC",trControl=cntl,preProcess=c("center","scale"))
+
+model7 <- lda(default~.,data=odata)
+
+predMat <- matrix(c(
+  model5$finalModel$votes[,2],
+  #predict(model6,fdata,"prob")[,2],
+  predict(model7,odata)$posterior[,2]
+  ),30000,3)
+
+roc.plot(as.numeric(data$default)-1,predMat,legend=TRUE,plot.thres =NULL, ylab="% Detección (Sensibilidad)",xlab="% Falsa Alarma (1-Specificidad)",leg.text = c("Random Forest","SVM","LDA"), main="ROC de Modelos Alternativos")
 ```
 
-En esta tabla se puede observar que las varibles de incremento del estado de cuenta y de pagos, aportan poca diferencia en el porcentaje predicho por el modelo. Esto quizá se deba a que ambas están correlacionadas con el límite de crédito, y por ende, gran parte de su información se le atribuye a esta variable. Por otro lado, las variables de meses irregulares y pagos nulos, junto con la variable original de pagos pendientes tienen relevancia al momento de discriminar usuarios.
 
-El coeficiente de Edad indica que esta variable es poco importante. Esta variable había sido relacionada con las variables del grado educativo y el estado marital, las cuales tienen bastante poder discriminatorio, y recopilan mejor la diferencia entre probabilidad de impago y edad que se había observado previamente.
 
 ### Seleccion de valores de corte
 ```{r}
