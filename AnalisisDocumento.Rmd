@@ -15,6 +15,7 @@ library(psych)
 library(caret)
 library(knitr)
 library(forcats)
+library(cutpointr)
 ```
 
 
@@ -202,7 +203,7 @@ Se puede observar que, conforme el límite de crédito aumenta, disminuye la pro
 ```{r}
 tdata$MONTHSBEFORE <- factor(tdata$MONTHSBEFORE)
 
-ggplot(aes(x=MONTHSBEFORE, y=BILL, fill=default),data=tdata)+geom_boxplot(outlier.shape = NA, alpha=0.6)+coord_cartesian(ylim=c(-20000,98000))+labs(title="Evolución y distribución",subtitle = "Del historial del Estado de Cuenta")+xlab("Meses antes")+ylab("Estado de Cuenta")
+ggplot(aes(x=MONTHSBEFORE, y=BILL, fill=default),data=tdata)+geom_boxplot(outlier.shape = NA, alpha=0.6)+geom_violin( alpha=0.6)+coord_cartesian(ylim=c(-20000,98000))+labs(title="Evolución y distribución",subtitle = "Del historial del Estado de Cuenta")+xlab("Meses antes")+ylab("Estado de Cuenta")
 ```
 
 No hay un desplazamiento sustancial del promedio del estado de cuenta entre ambos grupos, sin embargo, se observa que el 3er cuartil del grupo de los incumplidores está por debajo del mismo cuantil para los cumplidores, lo que significa que los pagos más altos de los cumplidores por lo general son más altos que los pagos más altos de las incumplidores. Esto bien puede estar relacionado con que los usuarios incumplidores tienen límites de crédito más bajos.
@@ -212,7 +213,7 @@ Conforme pasa el tiempo, los estados de cuenta altos (valor que marca el 3er cua
 ### Historial de Amortizaciones
 
 ```{r}
-ggplot(aes(x=MONTHSBEFORE, y=AMORTIZATION, fill=default),data=tdata)+geom_boxplot(outlier.shape = NA, alpha=0.6)+coord_cartesian(ylim=c(-1000,7500))+labs(title="Evolución y distribución",subtitle = "Del historial de Amortizaciones")+xlab("Meses antes")+ylab("Cantidad Amortizada")
+ggplot(aes(x=MONTHSBEFORE, y=AMORTIZATION, fill=default),data=tdata)+geom_boxplot(outlier.shape = NA, alpha=0.3)+geom_violin( alpha=0.6)+coord_cartesian(ylim=c(-1000,10000))+labs(title="Evolución y distribución",subtitle = "Del historial de Amortizaciones")+xlab("Meses antes")+ylab("Cantidad Amortizada")
 ```
 
 Para esta variable es más notoria una diferencia: El promedio de la cantidad pagada cada mes por los incumplidores es más baja que la cantidad promedio pagada por los cumplidores. La evolución de los pagos parece tener una tendencia creciente tanto para el promedio como para el tercer cuartil de ambos grupos, aunque al igual que en variable BILL_AMT, esta tendencia es más marcada en el grupo de los cumplidores.
@@ -360,6 +361,7 @@ ggplot(aes(x=fct_reorder(rownames(coef),Valor),y=Valor),data=coef)+geom_point(co
   theme(axis.text.x =  element_text(angle=90))+xlab("Variable")
 
 ```
+
 El valor de la variable categórica Educación parece aportar mucho poder predictivo. Sin embargo, dado que gran parte de la población se ubica en los niveles Licenciatura-Maestría-Preparatoria, y aunado a que la diferencia entre sus respectivos coeficientes es baja, la variable Educación es en la práctica menos útil al momento de predecir.
 
 La variable Meses Irregulares y Pagos pendientes el mes pasado (PAY_1) tienen un coeficiente alto, indicando relevancia en la predicción. Todas las variables numéricas no tienen interpretación directa con unidades monetarias, años, o pagos pendientes, ya que todas las variables fueron estandarizadas para aplicar el metodo de regularización.
@@ -372,14 +374,20 @@ Además, se construirán adicionalmente:
 5. Bosque aleatorio en base a variables derivadas
 6. Máquina de Soporte Vectorial Lineal en base a variables derivadas.
 7. Modelo de Análisis de Discriminante Lineal en base a variables originales.
+8. Red Neuronal en base a variables derivadas.
 
 
 ```{r cache=TRUE}
 model5 <- train(default~.,data=fdata,method="rf",metric="ROC",trControl=cntl)
-dplyr::arrange(data.frame(model5$finalModel$importance),desc(MeanDecreaseGini))
+
+imp <- dplyr::arrange(data.frame(model5$finalModel$importance),desc(MeanDecreaseGini))
+
+ggplot(aes(x=fct_reorder(rownames(imp),-MeanDecreaseGini),y=MeanDecreaseGini),data=imp)+geom_point(color="midnightblue")+
+    labs(title="Importancia de las variables",subtitle="Según el descenso del Indice Gini")+
+    theme(axis.text.x =  element_text(angle=90))+xlab("Variable")
 ```
 
-Se enlistan en orden decreciente las variables dentro del modelo RandomForest por importancia según el criterio Gini. El más importante es la cantidad de pagos pendientes el mes pasado, seguido de dos variables derivadas y los registros
+Se enlistan en orden decreciente las variables dentro del modelo RandomForest de 500 arboles por importancia según el criterio Gini. El más importante es la cantidad de pagos pendientes el mes pasado, seguido de dos variables derivadas y los registros más recientes del estado de cuenta, y cantidad pagada.
 
 
 La matriz de confusion para este modelo, con un punto de corte de 0.5:
@@ -389,26 +397,81 @@ confusionMatrix(model5$finalModel$predicted,data$default,positive="Si")
 ```
 
 
-Para la SVM se hará un barrido del parámetro Costo.
+Para la SVM se hará un barrido del parámetro Costo. (Deshabilitado temporalmente)
 
-```{r }
-gr <- expand.grid(C=c(0.01,0.03,0.05,0.06,0.1))
-model6 <- train(default~.,data=fdata,method="svmLinear",tuneGrid=gr,metric="ROC",trControl=cntl,preProcess=c("center","scale"))
+```{r cache=TRUE}
+gr <- expand.grid(C=c(0.01,0.03,0.05,0.75,1,2))
 
-model7 <- lda(default~.,data=odata)
+set.seed(4345)
+model6 <- train(default~.,data=fdata,method="svmLinear",metric="ROC",trControl=trainControl(method="none", classProbs = TRUE, summaryFunction = twoClassSummary),preProcess=c("center","scale"))
+```
+
+Para optimizar la red neuronal se usa un barrido de los parámetros size (número de neuronas en la única capa oculta) y decay (el parámetro de penalización, evita el sobreajuste).
+
+```{r cache=TRUE, message=FALSE, warning= FALSE, results=FALSE}
+
+model7 <- train(default~.,data=fdata,method="lda",metric="ROC",trControl=cntl,preProcess=c("center","scale"))
+
+model8 <- train(default~.,data=fdata,method="nnet",trControl=cntl,preProcess=c("center","scale"),tuneGrid=expand.grid(size=seq(3,20,1), decay=c(0.1)),metric="ROC")
+
 
 predMat <- matrix(c(
   model5$finalModel$votes[,2],
-  #predict(model6,fdata,"prob")[,2],
-  predict(model7,odata)$posterior[,2]
-  ),30000,3)
+  predict(model6,fdata,"prob")[,2],
+  predict(model7,fdata,"prob")[,2],
+  model8$finalModel$fitted.values
+  ),30000,4)
+```
+```{r}
+roc.plot(as.numeric(data$default)-1,predMat,legend=TRUE,plot.thres =NULL, ylab="% Detección (Sensibilidad)",xlab="% Falsa Alarma (1-Specificidad)",leg.text = c("Random Forest","SVM","LDA","Neural Network"), main="ROC de Modelos Alternativos")
+```
 
-roc.plot(as.numeric(data$default)-1,predMat,legend=TRUE,plot.thres =NULL, ylab="% Detección (Sensibilidad)",xlab="% Falsa Alarma (1-Specificidad)",leg.text = c("Random Forest","SVM","LDA"), main="ROC de Modelos Alternativos")
+Los valores estimados de AUC reales para estos modelos: 
+
+```{r}
+kable(rbind(
+  model5$results[model5$results$mtry==model5$bestTune$mtry,2:7],
+  model7$results[,2:7],
+  model8$results[model8$results$size==model8$bestTune$size,3:8]
+  )
+  ,caption="Rendimiento real estimado de Modelos Alternativos")
+```
+
+### Ensamble de Modelos
+
+Para contar los votos a favor de cada modelo, se calculan los puntos de corte óptimos según el criterio de Costo de Clasificación errónea. Para esto, se establece el costo de tener un falso positivo. En el contexto del proyecto, esto sería el costo de brindar atención a un cliente marcado como potencial a que incumpla el pago, cuando sí pagará. Además, se establece el costo de tener un falso negativo, es decir, el costo de no atender un futuro usuario del cual sí faltará el siguiente pago, o dicho de otra forma, la cantidad que adeudará dicho usuario. 
+
+Estos valores deben ser establecidos con criterio propio del área bancaria. para efectos de ejemplo, se establece una relación 1:3 en el costo de falso positivo y falso negativo.
+
+```{r message=FALSE}
+
+cfp <- 1
+cfn <- 5
+
+comp <- data.frame(Reg=predict(model4,s=model4$finalModel$tuneValue$lambda,type="prob",data)[,2],RandFor=model5$finalModel$votes[,2],NeuralNet=model8$finalModel$fitted.values,LinDiscr=predict(model7,fdata,"prob")[,2],Impago=data$default)
+
+for(i in 1:4){
+comp[,i] <- ifelse(comp[,i]> cutpointr(x=comp[,i] ,class=comp$Impago, method=minimize_metric, metric = misclassification_cost,cost_fp=cfp,cost_fn=cfn,)$optimal_cutpoint,1,0)
+}
+
+
+kable(head(comp,5),caption="Votos a favor para cada usuario")
 ```
 
 
+--Pendiente: Ensamblar modelos
 
-### Seleccion de valores de corte
+### Resultados del Mejor Predictor
+
+Se selecciona la Red Neuronal, con punto de corte optimizado según el criterio antes descrito, y se obtienen los siguientes resultados:
+
+```{r}
+confusionMatrix(factor(comp$NeuralNet,labels=c("No","Si")),data$default,positive="Si")
+```
+
+
+### Seleccion de valores de corte a tres categorías
+
 ```{r}
 fdata$PRED <- model2$finalModel$fitted.values
 quantile(dplyr::filter(fdata,default=="Si")$PRED)
