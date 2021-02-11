@@ -1,7 +1,7 @@
 ---
 title: "Analisis Exploratorio"
 author: "Miguel Angel G.G"
-date: "3/Feb/2021"
+date: "11/Feb/2021"
 output: html_document
 ---
 
@@ -347,24 +347,36 @@ kable(rbind(rbind(
 
 Es notoria la mejoría observada en el área bajo la curva ROC para los modelos que no usan todos los 6 registros pasados de las variables historicas. Las variables derivadas parecen demostrar efectividad al condensar la información de la dinamica de los registros BILL_X y PAY_AMTX ya que tiene prácticamente el mismo poder predictivo que aquel modelo que usa las variables reducidas por PCA.
 
-Sin embargo, el modelo producido por regresión regularizada parece recolectar mejor (aunque en forma muy sutil) toda la información presente en el dataset. De este modelo resalta una disminución en la varianza del valor de ROC, lo que podría estar relacionado con un menor sobreajuste, dado que la regresión regularizada mitiga los efectos de las variables correlacionadas y que por ende, provocan sobreajuste.
-
-### Interpretación de Coeficientes del modelo 4
+Sin embargo, el modelo producido por regresión regularizada parece recolectar mejor (aunque en forma muy sutil) toda la información presente en el dataset. Se realiza un t test para corroborar que existe una mejora entre el modelo 2 y el 4:
 
 ```{r}
-coef <- as.data.frame(as.matrix(coef(model4$finalModel,model4$bestTune$lambda)))
+t.test(model2$resample$ROC,model4$resample$ROC,var.equal = FALSE,paired = FALSE)
+```
+
+El intervalo de confianza pasa por 0 y el p value es muy alto, por lo tanto, se puede concluir que ambos modelos tienen el mismo valor promedio de ROC.
+
+Se opta por elegir el modelo 2 de entre estos modelos de regresión lineal por su bajo valor de varianza de ROC y de Sensitividad.
+
+### Interpretación de Coeficientes del modelo 2
+
+```{r}
+coef <- as.data.frame(coef(model2$finalModel))
 colnames(coef) <- "Valor"
+
+a <- c(2,12:15) 
+for(i in a){ coef[i,1] <- coef[i,1] * 100000}
+
 coef$Valor <- exp(coef$Valor)
 coef <- arrange(coef,desc(Valor))
 ggplot(aes(x=fct_reorder(rownames(coef),Valor),y=Valor),data=coef)+geom_point(color="midnightblue")+
-  labs(title="Coeficientes",subtitle="Del modelo de regresión regularizada")+
+  labs(title="Coeficientes",subtitle="Del modelo de regresión logística 2")+
   theme(axis.text.x =  element_text(angle=90))+xlab("Variable")
 
 ```
 
 El valor de la variable categórica Educación parece aportar mucho poder predictivo. Sin embargo, dado que gran parte de la población se ubica en los niveles Licenciatura-Maestría-Preparatoria, y aunado a que la diferencia entre sus respectivos coeficientes es baja, la variable Educación es en la práctica menos útil al momento de predecir.
 
-La variable Meses Irregulares y Pagos pendientes el mes pasado (PAY_1) tienen un coeficiente alto, indicando relevancia en la predicción. Todas las variables numéricas no tienen interpretación directa con unidades monetarias, años, o pagos pendientes, ya que todas las variables fueron estandarizadas para aplicar el metodo de regularización.
+La variable Meses Irregulares y Pagos pendientes el mes pasado (PAY_1) tienen un coeficiente alto, indicando relevancia en la predicción. Los coeficientes de las covariantes cuyas unidades son moneda, a excepción de PAY_1, fueron multiplicadas por 100,000 antes de exponenciar para hacer más visible su influencia.
 
 
 ### Modelos Alternativos
@@ -426,6 +438,8 @@ predMat <- matrix(c(
 roc.plot(as.numeric(data$default)-1,predMat,legend=TRUE,plot.thres =NULL, ylab="% Detección (Sensibilidad)",xlab="% Falsa Alarma (1-Specificidad)",leg.text = c("Random Forest","SVM","LDA","Neural Network"), main="ROC de Modelos Alternativos")
 ```
 
+El modelo de red neuronal parece, a priori, desempeñarse notoriamente mejor que el siguiente mejor modelo, el basado en Random Forest.
+
 Los valores estimados de AUC reales para estos modelos: 
 
 ```{r}
@@ -436,6 +450,13 @@ kable(rbind(
   )
   ,caption="Rendimiento real estimado de Modelos Alternativos")
 ```
+
+Se realiza un t test con los varios datos de ROC generados por validación cruzada durante el entrenamiento:
+
+```{r}
+t.test(model5$resample$ROC,model8$resample$ROC,var.equal = FALSE, paired=FALSE)
+```
+El p-value indica una probabilidad del 7.4% de obtener esta diferencia entre los valores de ROC para ambos modelos por pura casualidad. No es una evidencia suficientemente fuerte, por lo tanto se puede considerar el rendimiento de ambos modelos equiparables.
 
 ### Ensamble de Modelos
 
