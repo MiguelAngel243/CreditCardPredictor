@@ -16,6 +16,8 @@ library(caret)
 library(knitr)
 library(forcats)
 library(cutpointr)
+library(caretEnsemble)
+library(DDoutlier)
 ```
 
 
@@ -424,7 +426,7 @@ Para optimizar la red neuronal se usa un barrido de los parámetros size (númer
 
 model7 <- train(default~.,data=fdata,method="lda",metric="ROC",trControl=cntl,preProcess=c("center","scale"))
 
-model8 <- train(default~.,data=fdata,method="nnet",trControl=cntl,preProcess=c("center","scale"),tuneGrid=expand.grid(size=seq(3,20,1), decay=c(0.1)),metric="ROC")
+model8 <- train(default~.,data=fdata,method="nnet",trControl=cntl,preProcess=c("center","scale"),tuneGrid=expand.grid(size=seq(3,10,1), decay=c(0.1)),metric="ROC")
 
 
 predMat <- matrix(c(
@@ -456,7 +458,7 @@ Se realiza un t test con los varios datos de ROC generados por validación cruza
 ```{r}
 t.test(model5$resample$ROC,model8$resample$ROC,var.equal = FALSE, paired=FALSE)
 ```
-El p-value indica una probabilidad del 7.4% de obtener esta diferencia entre los valores de ROC para ambos modelos por pura casualidad. No es una evidencia suficientemente fuerte, por lo tanto se puede considerar el rendimiento de ambos modelos equiparables.
+El p-value indica una probabilidad del 2% de obtener esta diferencia entre los valores de ROC para ambos modelos por pura casualidad. Por lo tanto se considera al modelo de redes neuronales, superior respecto a la métrica ROC.
 
 ### Ensamble de Modelos
 
@@ -478,9 +480,26 @@ comp[,i] <- ifelse(comp[,i]> cutpointr(x=comp[,i] ,class=comp$Impago, method=min
 
 kable(head(comp,5),caption="Votos a favor para cada usuario")
 ```
+Para ensamblar estos cuatro modelos, se repite su entrenamiento bajo los mismos índices de los folds en la validación cruzada:
+```{r cache=TRUE, message=FALSE, warning= FALSE, results=FALSE}
+combo <- caretList(default~.,data=fdata,trControl=cntl,metric="ROC", tuneList =list(
+  m1=caretModelSpec(method="glm"),
+  m2=caretModelSpec(method="rf"),
+  m3=caretModelSpec(method="lda",preProcess=c("center","scale")),
+  m4=caretModelSpec(method="nnet",preProcess=c("center","scale"),tuneGrid=expand.grid(size=seq(3,10,1), decay=c(0.1)))
+  ))
+modelCor(resamples(combo))
+```
+Los 4 modelos tienen altos valores de correlación, por lo tanto, puede no ser útil ensamblarlos.
 
-
---Pendiente: Ensamblar modelos
+```{r}
+ens <- caretEnsemble(combo,metric="ROC",trControl=cntl)
+ens$ens_model$results
+```
+```{r}
+t.test(ens$ens_model$resample$ROC,model8$resample$ROC)
+```
+El t-test de los valores de ROC obtenidos durante la validación cruzada en el entrenamiento del modelo ensamblado arroja un p-value elevado. No hay mejora significativa.
 
 ### Resultados del Mejor Predictor
 
@@ -490,38 +509,44 @@ Se selecciona la Red Neuronal, con punto de corte optimizado según el criterio 
 confusionMatrix(factor(comp$NeuralNet,labels=c("No","Si")),data$default,positive="Si")
 ```
 
+## Identificación de Anomalías
 
-### Seleccion de valores de corte a tres categorías
-
-```{r}
-fdata$PRED <- model2$finalModel$fitted.values
-quantile(dplyr::filter(fdata,default=="Si")$PRED)
-```
-```{r}
-quantile(dplyr::filter(fdata,default=="No")$PRED)
-```
-
-Si queremos que en el intervalo de "Riesgo bajo" se encuentre el 20% de los que incumplirán:
-```{r}
-a <- quantile(dplyr::filter(fdata,default=="Si")$PRED,0.2)
-a
-```
-Y que en el intervalo de "Riesgo Miedio" y "Riesgo bajo" haya el 60%:
-```{r}
-b <- quantile(dplyr::filter(fdata,default=="Si")$PRED,0.6)
-b
-```
-Realizamos los cortes a a variable predicha:
-```{r}
-fdata$FP <- cut(fdata$PRED,c(0,a,b,1),labels = c("Bajo","Medio","Alto"))
-```
-
-La matriz de predicción quedaría:
-```{r}
-with(fdata,table(default,FP))
-```
+Se emplea el _Factor de Anomalía Local_ para asignar a cada observación un valor que indica qué tan aislada esta dicha observación de respecto a sus observaciones vecinas. Para aplicar esta metodología, se estandarizan las variables numéricas y se crean dummys desde las variables categóricas.
 
 ```{r}
-ggplot(aes(x=FP,fill=default),data=fdata)+geom_bar(position = position_stack())+labs(title="Proporción de impago",subtitle = "Por categoría predicha")+xlab("Categoría")+ylab("Cantidad de Usuarios")
+
+
+fnorm <- predict(preProcess(fdata,method=c("center","scale")),fdata)
+m <- model.matrix(~.,fnorm)
+fdata$LOF <- LOF(m,k=10)
+quantile(fdata$LOF,.90)
+```
+El 90% de las observaciones se encuentran a dicho valor de LOF. Se procede a filtrar el 10% restante, considerándolas como anomalías.
+
+```{r}
+ndata <- filter(fdata,LOF<quantile(fdata$LOF,0.90))
+```
+
+Finalmente, se reentrena el modelo sin las anomalías.
+```{r cache=TRUE, message=FALSE, warning= FALSE, results=FALSE}
+model8m <- train(default~.,data=ndata,method="nnet",trControl=cntl,preProcess=c("center","scale"),tuneGrid=expand.grid(size=seq(3,10,1), decay=c(0.1)),metric="ROC")
+```
+```{r}
+model8m$results[model8m$results$size==model8m$bestTune$size,3:8]
+```
+El valor promedio del área bajo la curva de ROC es ligeramente más alto que el modelo entrenado con anomalías. Se comprueba la hipótesis de la mejoría:
+```{r}
+t.test(model8m$resample$ROC,model8$resample$ROC)
+```
+En efecto, se comprueba una mejoría en la predicción.
+
+Se calcula una nueva matriz de confusión para este nuevo modelo, con los datos de completos:
+
+```{r}
+predictions <- predict(model8m,fdata,type="prob")[,2]
+
+pred <- ifelse(predictions> cutpointr(x=predictions ,class=fdata$default, method=minimize_metric, metric = misclassification_cost,cost_fp=cfp,cost_fn=cfn,)$optimal_cutpoint,1,0)
+
+confusionMatrix(factor(pred,labels=c("No","Si")),fdata$default,positive = "Si")
 ```
 
