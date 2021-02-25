@@ -4,14 +4,51 @@ if(interactive()){
     library(shinyMatrix)
     library(shinyjs)
     library(plotly)
+    library(cutpointr)
     
     m <- matrix(rep(0,18),6,3, dimnames = list(c(seq(1:6)),c("Pagos Pendientes","Estado de Cuenta","Amortizaciones")))
+    lowrisk <- 0.15
+    highrisk <- 0.2
     
     jscode <- "
 shinyjs.collapse = function(boxid) {
 $('#' + boxid).closest('.box').find('[data-widget=collapse]').click();
 }
-"
+"  
+    plotgraphs <- function(input,output){
+        a<- unlist(head(rocdata[rocdata[,1]==lowrisk,],1))
+        b<- unlist(head(rocdata[rocdata[,1]==highrisk,],1))
+        c<- unlist(head(prdata[prdata[,1]==lowrisk,],1))
+        d<- unlist(head(prdata[prdata[,1]==highrisk,],1))
+        
+        output$rocplot <- renderPlotly(
+            plot_ly(rocdata, x=~V1, y=~V2, type="scatter", mode="lines",
+                    hovertemplate=paste("Cutpoint: ",rocdata$V3), 
+                    color=I("black")) %>% 
+                layout(xaxis=list(title="Falsa Alarma"),
+                       yaxis=list(title="Sensitividad"),
+                       title="Curva Receiving-Operating",
+                       showlegend=FALSE) %>% 
+                add_segments(x=a[2], xend=a[2], y=0, yend=1, color=I("yellow"),line=list(dash="dash")) %>% 
+                add_segments(x=0, xend=1, y=a[3], yend=a[3], color=I("yellow"),line=list(dash="dash")) %>% 
+                add_segments(x=b[2], xend=b[2], y=0, yend=1, color=rgb(1,0.7,0.7),line=list(dash="dash")) %>% 
+                add_segments(x=0, xend=1, y=b[3], yend=b[3], color=rgb(1,0.7,0.7),line=list(dash="dash")) 
+        )
+        
+        output$prplot <- renderPlotly(
+            plot_ly(prdata, x=~V1, y=~V2, type="scatter", mode="lines",
+                    hovertemplate=paste("Cutpoint: ",prdata$V3),
+                    color=I("black")) %>% 
+                layout(xaxis=list(title="Sensitividad"),
+                       yaxis=list(title="Valor Predictivo Positivo"),
+                       title="Curva Precision-Recall", 
+                       showlegend=FALSE) %>% 
+                add_segments(x=c[2], xend=c[2], y=0, yend=1, color=I("yellow"),line=list(dash="dash")) %>% 
+                add_segments(x=0, xend=1, y=c[3], yend=c[3], color=I("yellow"),line=list(dash="dash")) %>% 
+                add_segments(x=d[2], xend=d[2], y=0, yend=1, color=rgb(1,0.7,0.7),line=list(dash="dash")) %>% 
+                add_segments(x=0, xend=1, y=d[3], yend=d[3], color=rgb(1,0.7,0.7),line=list(dash="dash")) 
+        )
+    }
 
 ui <- dashboardPage(
     dashboardHeader(title="Predictor de Impago en Tarjetas de Crédito"),
@@ -53,13 +90,14 @@ ui <- dashboardPage(
                                 tabPanel("Por Lote",
                                          fileInput("filesel","Archivo de Datos", buttonLabel = "Seleccionar"),
                                          actionButton("calcfile","Calcular")),
-                                         
+                                
                                 height=650,
                                 width=19
                             )
                         ),
                         box(title="Resultados", width=19,
-                            infoBoxOutput("prob")
+                            infoBoxOutput("prob"),
+                            infoBoxOutput("ppv")
                         )
                     )
             ),
@@ -69,14 +107,18 @@ ui <- dashboardPage(
                                tabPanel("Por Relación de Costos",
                                         numericInput("rel","Relación de Costo FP/FN:",3)),
                                tabPanel("Por Valores Predictivos",
-                                        numericInput("vpp","Valor Predictivo Positivo",value=0),
-                                        numericInput("vpn","Valor Predictivo Negativo",value=0)
-                                       )
-                        )
+                                        numericInput("vppl","Valor Predictivo Positivo, Grado Medio",value=0.3),
+                                        numericInput("vppm","Valor Predictivo Positivo, Grado Alto",value=0.5)
+                               )
                         ),
-                    plotlyOutput("rocplot",width="50%")
-                    )
-                    
+                        actionButton("calccut","Establecer")
+                    ),
+                    fluidRow(
+                        column(5,
+                               plotlyOutput("rocplot",width="100%")),
+                        column(5,plotlyOutput("prplot",width="100%")))
+            )
+            
         )
         
         
@@ -84,36 +126,41 @@ ui <- dashboardPage(
 )
 
 server <- function(input, output, session) { 
-    output$rocplot <- renderPlotly(
-        plot_ly(rd,x=~fa,y=~se,type="scatter",mode="lines",hovertemplate=paste("Cutpoint: ",rd$cp)) %>% layout(xaxis=list(title="Falsa Alarma"),yaxis=list(title="Sensitividad"))
-        )
+
+    plotgraphs(input,output)
     
     observeEvent(input$calc,{
+        js$collapse("d")
+        clientdata <- data.frame(
+            input$limitbal,
+            input$gensel,
+            input$educsel,
+            input$marsel,
+            input$edad,
+            input$financ[1,1],
+            input$financ[1,2],
+            input$financ[1,3],
+            input$financ[1,2]-input$financ[6,2],
+            input$financ[1,3]-input$financ[6,3],
+            sum(input$financ[,3]==0),
+            sum(input$financ[,1]>0)
+        )
+        colnames(clientdata) <- c("LIMIT_BAL","SEX","EDUCATION","MARRIAGE","AGE","PAY_1",
+                                  "BILL_AMT1","PAY_AMT1","INCRBILL","INCRPAYS","NNULLPAYMENTS",
+                                  "IRREGMONTHS")
+        p <- round(predict(finalmodel,clientdata,type="prob")$Si,2)
+        print(lowrisk)
+        if(p<lowrisk){colr<-"green"}
+        if(p>=lowrisk & p<highrisk){colr<-"yellow"}
+        if(p>=highrisk){colr<-"red"}
+        ppvv <- round(prdata[prdata[,1]==p,]$V2,2)*100
+        
         output$prob <- renderInfoBox({
-            js$collapse("d")
-            clientdata <- data.frame(
-                input$limitbal,
-                input$gensel,
-                input$educsel,
-                input$marsel,
-                input$edad,
-                input$financ[1,1],
-                input$financ[1,2],
-                input$financ[1,3],
-                input$financ[1,2]-input$financ[6,2],
-                input$financ[1,3]-input$financ[6,3],
-                sum(input$financ[,3]==0),
-                sum(input$financ[,1]>0)
-            )
-            colnames(clientdata) <- c("LIMIT_BAL","SEX","EDUCATION","MARRIAGE","AGE","PAY_1",
-                                     "BILL_AMT1","PAY_AMT1","INCRBILL","INCRPAYS","NNULLPAYMENTS",
-                                     "IRREGMONTHS")
-            str(clientdata)
-            p <- predict(model8,clientdata,type="prob")$Si*100
-            if(p<20){colr<-"green"}
-            if(p>=20 & p<30){colr<-"yellow"}
-            if(p>=30){colr<-"red"}
-            infoBox("Probabilidad",value=p,fill=TRUE,color=colr)
+            infoBox("Probabilidad",value=p*100,fill=TRUE,color=colr,icon=icon("hand-holding-usd"))
+        })
+        
+        output$ppv <- renderInfoBox({
+            infoBox("Valor Positivo Predictivo",value=ppvv,fill=FALSE,color="black", icon=icon("exclamation-triangle"))
         })
     })
     
@@ -133,6 +180,34 @@ server <- function(input, output, session) {
         data <- read.csv(file$datapath)
         data <- mutate(data,INCRPAYS=PAY_AMT1-PAY_AMT6)
         data <- mutate(data,INCRBILL=(BILL_AMT1-BILL_AMT6))
+    })
+    
+    observeEvent(input$calccut,{
+        if(input$conftab=="Por Relación de Costos"){
+            lowrisk <<- round(cutpointr(x=finalmodel$finalModel$fitted.values,
+                                 class=fdata$default, 
+                                 method=minimize_metric, 
+                                 metric = misclassification_cost,
+                                 cost_fp=input$rel, cost_fn=1)$optimal_cutpoint,2)
+            highrisk <<- lowrisk
+        }
+        if(input$conftab=="Por Valores Predictivos"){
+            lowrisk <<- round(cutpointr(x=finalmodel$finalModel$fitted.values,
+                                 class=fdata$default, 
+                                 method=maximize_metric, 
+                                 metric=metric_constrain, 
+                                 constrain_metric=ppv, 
+                                 min_constrain=input$vppl)$optimal_cutpoint,2)
+            
+            highrisk <<- round(cutpointr(x=finalmodel$finalModel$fitted.values,
+                                  class=fdata$default, 
+                                  method=maximize_metric, 
+                                  metric=metric_constrain, 
+                                  constrain_metric=ppv, 
+                                  min_constrain=input$vppm)$optimal_cutpoint,2)
+        }
+        
+        plotgraphs(input,output)
     })
 }
 
