@@ -6,7 +6,7 @@ if(interactive()){
     library(plotly)
     library(cutpointr)
     
-    m <- matrix(rep(0,18),6,3, dimnames = list(c(seq(1:6)),c("Pagos Pendientes","Estado de Cuenta","Amortizaciones")))
+    m <- matrix(rep(0,18),6,3, dimnames = list(paste(1:6,"° mes anterior"),c("Pagos Pendientes","Estado de Cuenta","Amortizaciones")))
     lowrisk <- 0.15
     highrisk <- 0.2
     
@@ -28,11 +28,16 @@ $('#' + boxid).closest('.box').find('[data-widget=collapse]').click();
                 layout(xaxis=list(title="Falsa Alarma"),
                        yaxis=list(title="Sensitividad"),
                        title="Curva Receiving-Operating",
-                       showlegend=FALSE) %>% 
-                add_segments(x=a[2], xend=a[2], y=0, yend=1, color=I("yellow"),line=list(dash="dash")) %>% 
-                add_segments(x=0, xend=1, y=a[3], yend=a[3], color=I("yellow"),line=list(dash="dash")) %>% 
-                add_segments(x=b[2], xend=b[2], y=0, yend=1, color=rgb(1,0.7,0.7),line=list(dash="dash")) %>% 
-                add_segments(x=0, xend=1, y=b[3], yend=b[3], color=rgb(1,0.7,0.7),line=list(dash="dash")) 
+                       showlegend=FALSE
+                       ) %>% 
+                add_segments(x=a[2], xend=a[2], y=0, yend=1, 
+                             line=list(dash="dash", color="#FF8000")) %>% 
+                add_segments(x=0, xend=1, y=a[3], yend=a[3], 
+                             line=list(dash="dash", color="#FF8000")) %>% 
+                add_segments(x=b[2], xend=b[2], y=0, yend=1,
+                             line=list(dash="dash", color="#8B0000")) %>% 
+                add_segments(x=0, xend=1, y=b[3], yend=b[3],
+                             line=list(dash="dash", color="#8B0000")) 
         )
         
         output$prplot <- renderPlotly(
@@ -43,10 +48,14 @@ $('#' + boxid).closest('.box').find('[data-widget=collapse]').click();
                        yaxis=list(title="Valor Predictivo Positivo"),
                        title="Curva Precision-Recall", 
                        showlegend=FALSE) %>% 
-                add_segments(x=c[2], xend=c[2], y=0, yend=1, color=I("yellow"),line=list(dash="dash")) %>% 
-                add_segments(x=0, xend=1, y=c[3], yend=c[3], color=I("yellow"),line=list(dash="dash")) %>% 
-                add_segments(x=d[2], xend=d[2], y=0, yend=1, color=rgb(1,0.7,0.7),line=list(dash="dash")) %>% 
-                add_segments(x=0, xend=1, y=d[3], yend=d[3], color=rgb(1,0.7,0.7),line=list(dash="dash")) 
+                add_segments(x=c[2], xend=c[2], y=0, yend=1, 
+                             line=list(dash="dash", color="#FF8000")) %>% 
+                add_segments(x=0, xend=1, y=c[3], yend=c[3],
+                             line=list(dash="dash", color="#FF8000")) %>% 
+                add_segments(x=d[2], xend=d[2], y=0, yend=1,
+                             line=list(dash="dash", color="#8B0000")) %>% 
+                add_segments(x=0, xend=1, y=d[3], yend=d[3],
+                             line=list(dash="dash", color="#8B0000")) 
         )
     }
 
@@ -169,7 +178,7 @@ server <- function(input, output, session) {
         })
         
         output$ppv <- renderInfoBox({
-            infoBox("Valor Positivo Predictivo",value=ppvv,fill=FALSE,color="black", icon=icon("exclamation-triangle"))
+            infoBox("Valor Positivo Predictivo",value=paste(ppvv,"%"),fill=FALSE,color="black", icon=icon("exclamation-triangle"))
         })
     })
     
@@ -180,7 +189,7 @@ server <- function(input, output, session) {
         shiny::updateSelectInput(session,"marsel",selected=demos[ran,4])
         shiny::updateNumericInput(session,"edad",value=demos[ran,5])
         shiny::updateNumericInput(session,"limitbal",value=demos[ran,1])
-        m <- matrix(demos[ran,6:23],6,3, dimnames = list(c(seq(1:6)),c("Pagos Pendientes","Estado de Cuenta","Amortizaciones")))
+        m <- matrix(demos[ran,6:23],6,3, dimnames = list(paste(1:6,"° mes anterior"),c("Pagos Pendientes","Estado de Cuenta","Amortizaciones")))
         updateMatrixInput(session,"financ",value=m)
         output$esperado <- renderText(
             if(demos[ran,24]=="Si"){

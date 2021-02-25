@@ -1,3 +1,5 @@
+library(PRROC)
+
 demos <- odata
 levels(demos$MARRIAGE) <- c("Casado","Otro","Soltero")
 levels(demos$EDUCATION) <- c("Otro","Licenciatura","Maestría/Doctorado","Otro","Bachillerato")
