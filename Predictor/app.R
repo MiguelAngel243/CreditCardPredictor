@@ -239,6 +239,7 @@ server <- function(input, output, session) {
             data[30] <- predict(finalmodel,data,type="prob")[,2] %>%
                 cut(breaks=c(0,lowrisk,highrisk,1),labels=c("Bajo","Medio","Alto"))
             
+            colnames(data)[30] <- "RIESGO CALCULADO"
             write.csv(data,file)
         }
     )
