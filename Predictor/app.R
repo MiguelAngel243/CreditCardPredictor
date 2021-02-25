@@ -54,8 +54,8 @@ ui <- dashboardPage(
     dashboardHeader(title="Predictor de Impago en Tarjetas de Crédito"),
     dashboardSidebar(
         sidebarMenu(
-            menuItem("Predecir",tabName = "Predecir",icon=icon("dashboard")),
-            menuItem("Configurar",tabName="Configurar",icon=icon("th"))
+            menuItem("Predecir",tabName = "Predecir",icon=icon("calculator")),
+            menuItem("Configurar",tabName="Configurar",icon=icon("sliders-h"))
         )
     ),
     dashboardBody(
@@ -86,11 +86,11 @@ ui <- dashboardPage(
                                          ),
                                          actionButton("calc","Calcular"),
                                          actionButton("sample","Demostración"),
+                                         textOutput("esperado")
                                 ),
                                 tabPanel("Por Lote",
                                          fileInput("filesel","Archivo de Datos", buttonLabel = "Seleccionar"),
-                                         actionButton("calcfile","Calcular")),
-                                
+                                         downloadButton("calcfile","Procesar y Descargar")),
                                 height=650,
                                 width=19
                             )
@@ -105,10 +105,10 @@ ui <- dashboardPage(
                     fluidRow(
                         tabBox(id="conftab",title="Umbrales",
                                tabPanel("Por Relación de Costos",
-                                        numericInput("rel","Relación de Costo FP/FN:",3)),
+                                        numericInput("rel","Relación de Costo FP/FN:",0.3,step=0.1)),
                                tabPanel("Por Valores Predictivos",
-                                        numericInput("vppl","Valor Predictivo Positivo, Grado Medio",value=0.3),
-                                        numericInput("vppm","Valor Predictivo Positivo, Grado Alto",value=0.5)
+                                        numericInput("vppl","Valor Predictivo Positivo, Grado Medio",value=0.3, step=0.1),
+                                        numericInput("vppm","Valor Predictivo Positivo, Grado Alto",value=0.5, step=0.1)
                                )
                         ),
                         actionButton("calccut","Establecer")
@@ -150,13 +150,22 @@ server <- function(input, output, session) {
                                   "IRREGMONTHS")
         p <- round(predict(finalmodel,clientdata,type="prob")$Si,2)
         print(lowrisk)
-        if(p<lowrisk){colr<-"green"}
-        if(p>=lowrisk & p<highrisk){colr<-"yellow"}
-        if(p>=highrisk){colr<-"red"}
+        if(p<lowrisk){
+            colr<-"green"
+            riesgo <- "Riesgo Bajo"
+        }
+        if(p>=lowrisk & p<highrisk){
+            colr<-"yellow"
+            riesgo <- "Riesgo Medio"
+        }
+        if(p>=highrisk){
+            colr<-"red"
+            riesgo <- "Riesgo Alto"
+        }
         ppvv <- round(prdata[prdata[,1]==p,]$V2,2)*100
         
         output$prob <- renderInfoBox({
-            infoBox("Probabilidad",value=p*100,fill=TRUE,color=colr,icon=icon("hand-holding-usd"))
+            infoBox("Categoría",value=riesgo,fill=TRUE,color=colr,icon=icon("hand-holding-usd"))
         })
         
         output$ppv <- renderInfoBox({
@@ -173,14 +182,47 @@ server <- function(input, output, session) {
         shiny::updateNumericInput(session,"limitbal",value=demos[ran,1])
         m <- matrix(demos[ran,6:23],6,3, dimnames = list(c(seq(1:6)),c("Pagos Pendientes","Estado de Cuenta","Amortizaciones")))
         updateMatrixInput(session,"financ",value=m)
+        output$esperado <- renderText(
+            if(demos[ran,24]=="Si"){
+                "Este usuario incumplirá con el siguiente pago"
+            }else{
+                "Este usuario cumplirá con el siguiente pago"
+            }
+            )
     })
     
-    observeEvent(input$calcfile,{
-        file <- input$filesel
-        data <- read.csv(file$datapath)
-        data <- mutate(data,INCRPAYS=PAY_AMT1-PAY_AMT6)
-        data <- mutate(data,INCRBILL=(BILL_AMT1-BILL_AMT6))
-    })
+    output$calcfile <- downloadHandler(
+        filename = "riesgo_impago_resultados.csv", 
+        content = function(file){
+            filein <- input$filesel
+            data <- read.csv(filein$datapath)
+            data$SEX <- factor(ifelse(data$SEX==1,"Hombre","Mujer"))
+            data$EDUCATION <- factor(mapvalues(data$EDUCATION,0:6,c("Otro","Maestría/Doctorado","Licenciatura","Bachillerato","Otro","Otro","Otro")))
+            data$MARRIAGE <- factor(mapvalues(data$MARRIAGE, 0:3, c("Otro","Casado","Soltero","Otro")))
+            
+            colnames(data)[25] <- "default"
+            colnames(data)[7] <- "PAY_1"
+            
+            data <- mutate(data,INCRPAYS=PAY_AMT1-PAY_AMT6)
+            data <- mutate(data,INCRBILL=(BILL_AMT1-BILL_AMT6))
+            
+            for(i in 1:nrow(data)){
+                data[i,28] <- sum(data[i,19:24]==0)
+            }
+            
+            for(i in 1:nrow(data)){
+                data[i,29] <- sum(data[i,7:12]>0)
+            }
+            
+            colnames(data)[28] <- "NNULLPAYMENTS"
+            colnames(data)[29] <- "IRREGMONTHS"
+            
+            data[30] <- predict(finalmodel,data,type="prob")[,2] %>%
+                cut(breaks=c(0,lowrisk,highrisk,1),labels=c("Bajo","Medio","Alto"))
+            
+            write.csv(data,file)
+        }
+    )
     
     observeEvent(input$calccut,{
         if(input$conftab=="Por Relación de Costos"){
