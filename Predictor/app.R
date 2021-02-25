@@ -5,8 +5,9 @@ if(interactive()){
     library(shinyjs)
     library(plotly)
     library(cutpointr)
+    load("objects")
     
-    m <- matrix(rep(0,18),6,3, dimnames = list(paste(1:6,"° mes anterior"),c("Pagos Pendientes","Estado de Cuenta","Amortizaciones")))
+    m <- matrix(rep(0,18),6,3, dimnames = list(paste(1:6,"° mes anterior"),c("Pagos Pendientes","Saldo","Amortizaciones")))
     lowrisk <- 0.15
     highrisk <- 0.2
     
@@ -76,7 +77,7 @@ ui <- dashboardPage(
                         box(id="d", title="Ingreso de Datos",collapsible = TRUE, width = 19,
                             tabBox(
                                 id="tabset1",
-                                tabPanel("Por Cliente",
+                                tabPanel("Por Cliente", icon=icon("user-check"),
                                          box(title="Datos Demográficos",
                                              selectInput("gensel","Género",c("Hombre","Mujer")),
                                              selectInput("educsel","Grado Educativo",c("Licenciatura","Maestría/Doctorado","Bachillerato","Otro")),
@@ -93,20 +94,25 @@ ui <- dashboardPage(
                                                ))
                                                
                                          ),
-                                         actionButton("calc","Calcular"),
-                                         actionButton("sample","Demostración"),
+                                         actionButton("calc","Calcular",icon=icon("calculator")),
+                                         actionButton("sample","Demostración",icon=icon("swatchbook")),
                                          textOutput("esperado")
                                 ),
-                                tabPanel("Por Lote",
-                                         fileInput("filesel","Archivo de Datos", buttonLabel = "Seleccionar"),
-                                         downloadButton("calcfile","Procesar y Descargar")),
+                                tabPanel("Por Lote", icon=icon("file-csv"),
+                                         fileInput("filesel","Archivo de Datos", 
+                                                   buttonLabel = "Seleccionar",accept = ".csv" ),
+                                         downloadButton("calcfile","Procesar y Descargar"), br(), br(),
+                                         "Carge un archivo csv con los datos de los clientes. De click en 
+                                         procesar, espere unos segundos y obtendrá el archivo con una nueva columna 
+                                         indicando la categoría de riesgo adjudicada por cada cliente."),
                                 height=650,
                                 width=19
                             )
                         ),
                         box(title="Resultados", width=19,
                             infoBoxOutput("prob"),
-                            infoBoxOutput("ppv")
+                            infoBoxOutput("ppv"),
+                            actionButton("return","Realizar nuevo calculo",icon=icon("calculator"))
                         )
                     )
             ),
@@ -114,13 +120,17 @@ ui <- dashboardPage(
                     fluidRow(
                         tabBox(id="conftab",title="Umbrales",
                                tabPanel("Por Relación de Costos",
-                                        numericInput("rel","Relación de Costo FP/FN:",0.3,step=0.1)),
+                                        numericInput("rel","Relación de Costo FP/FN:",0.3,step=0.1),
+                                        "Introduzca el cociente entre el costo de brindarle atención a un cliente que sí 
+                                        cumplirá, entre el costo de no brindarle atención a un cliente que sí incumplirá."),
                                tabPanel("Por Valores Predictivos",
                                         numericInput("vppl","Valor Predictivo Positivo, Grado Medio",value=0.3, step=0.1),
-                                        numericInput("vppm","Valor Predictivo Positivo, Grado Alto",value=0.5, step=0.1)
+                                        numericInput("vppm","Valor Predictivo Positivo, Grado Alto",value=0.5, step=0.1),
+                                        "Introduzca el porcentaje de confianza de considerar positivo a un cliente para 
+                                        los intervalos de riesgo bajo-medio y medio-alto."
                                )
                         ),
-                        actionButton("calccut","Establecer")
+                        actionButton("calccut","Establecer",icon=icon("cogs"))
                     ),
                     fluidRow(
                         column(5,
@@ -189,13 +199,13 @@ server <- function(input, output, session) {
         shiny::updateSelectInput(session,"marsel",selected=demos[ran,4])
         shiny::updateNumericInput(session,"edad",value=demos[ran,5])
         shiny::updateNumericInput(session,"limitbal",value=demos[ran,1])
-        m <- matrix(demos[ran,6:23],6,3, dimnames = list(paste(1:6,"° mes anterior"),c("Pagos Pendientes","Estado de Cuenta","Amortizaciones")))
+        m <- matrix(demos[ran,6:23],6,3, dimnames = list(paste(1:6,"° mes anterior"),c("Pagos Pendientes","Saldo","Amortizaciones")))
         updateMatrixInput(session,"financ",value=m)
         output$esperado <- renderText(
             if(demos[ran,24]=="Si"){
-                "Este usuario incumplirá con el siguiente pago"
+                "Este usuario demostrado: Realmente incumplió con el siguiente pago"
             }else{
-                "Este usuario cumplirá con el siguiente pago"
+                "Este usuario demostrado: Realmente cumplió con el siguiente pago"
             }
             )
     })
@@ -232,6 +242,10 @@ server <- function(input, output, session) {
             write.csv(data,file)
         }
     )
+    
+    observeEvent(input$return,{
+        js$collapse("d")
+    })
     
     observeEvent(input$calccut,{
         if(input$conftab=="Por Relación de Costos"){
