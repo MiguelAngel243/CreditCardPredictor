@@ -250,7 +250,7 @@ server <- function(input, output, session) {
     observeEvent(input$calccut,{
         if(input$conftab=="Por Relación de Costos"){
             lowrisk <<- round(cutpointr(x=finalmodel$finalModel$fitted.values,
-                                 class=fdata$default, 
+                                 class=demos$default, 
                                  method=minimize_metric, 
                                  metric = misclassification_cost,
                                  cost_fp=input$rel, cost_fn=1)$optimal_cutpoint,2)
@@ -258,14 +258,14 @@ server <- function(input, output, session) {
         }
         if(input$conftab=="Por Valores Predictivos"){
             lowrisk <<- round(cutpointr(x=finalmodel$finalModel$fitted.values,
-                                 class=fdata$default, 
+                                 class=demos$default, 
                                  method=maximize_metric, 
                                  metric=metric_constrain, 
                                  constrain_metric=ppv, 
                                  min_constrain=input$vppl)$optimal_cutpoint,2)
             
             highrisk <<- round(cutpointr(x=finalmodel$finalModel$fitted.values,
-                                  class=fdata$default, 
+                                  class=demos$default, 
                                   method=maximize_metric, 
                                   metric=metric_constrain, 
                                   constrain_metric=ppv, 
