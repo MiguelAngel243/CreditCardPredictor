@@ -5,6 +5,7 @@ if(interactive()){
     library(shinyjs)
     library(plotly)
     library(cutpointr)
+    library(plyr)
     load("objects")
     
     m <- matrix(rep(0,18),6,3, dimnames = list(paste(1:6,"° mes anterior"),c("Pagos Pendientes","Saldo","Amortizaciones")))
@@ -100,7 +101,7 @@ ui <- dashboardPage(
                                 ),
                                 tabPanel("Por Lote", icon=icon("file-csv"),
                                          fileInput("filesel","Archivo de Datos", 
-                                                   buttonLabel = "Seleccionar",accept = ".csv" ),
+                                                   buttonLabel = "Seleccionar",accept = ".csv"),
                                          downloadButton("calcfile","Procesar y Descargar"), br(), br(),
                                          "Carge un archivo csv con los datos de los clientes. De click en 
                                          procesar, espere unos segundos y obtendrá el archivo con una nueva columna 
